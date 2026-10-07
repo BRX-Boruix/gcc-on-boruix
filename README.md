@@ -21,7 +21,8 @@
 | 工具链二进制（`AR`/`RANLIB`/…） | **显式传 LLVM 工具**（Boruix 没有 binutils；归档只是容器、与目标无关）。见 `boruix/configure-boruix.sh` |
 | 路径风格（**实测踩过的坑**） | configure 必须用 **Windows 风格绝对路径**调用（`F:/...` 而非 `/f/...`）：否则生成文件里带 MSYS2 路径，**原生 clang 解析不了**，表现为 GMP 的 `mp_limb_t doesn't seem to work` |
 | GCC configure（Canadian cross） | **已通过**（`host system type... x86_64-pc-boruix`、`whether the C compiler works... yes`、`config.status: creating Makefile`） |
-| 前置库交叉构建 | **GMP configure 已通过**（`Host type: x86_64-pc-boruix`、`ABI: 64`），`make` 正在编译真实 C；MPFR/MPC 待做 |
+| 前置库交叉构建 | **GMP 已完整构建成功**：`libgmp.a` 1,081,482 字节 / **516 个目标文件**，成员经 `llvm-readelf` 验为 `ELF64 REL x86-64`（= 为 Boruix 宿主产出的合法目标文件）。过程中暴露并补齐了 5 处 libc 缺口（`getc`/`putc`、stdio 卫哨名、`isascii`、`vsprintf`、`<signal.h>` 不自洽）。**MPFR/MPC 待做** |
+| libc 机械检查 | 两条互补：`libc/tools/audit_header_coverage.py`（导出是否被声明；当前 184 个导出 / 0 缺口）与 `audit_header_selfcontained.py`（每个头单独 include 能否编译；当前 25 个头 / 0 失败） |
 | **GCC 在 Boruix 内运行** | **未达成**——这是本仓的主体工作 |
 
 ---
