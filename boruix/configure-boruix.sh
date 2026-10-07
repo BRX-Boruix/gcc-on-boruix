@@ -5,6 +5,11 @@
 #   host   = x86_64-boruix    （用 clang 18 + Boruix sysroot 编**在 Boruix 内运行**的 gcc/cc1）
 #   target = x86_64-elf       （裸机 x86-64，与 BORUIX 的 ABI 同形；libc 由 Boruix sysroot 提供）
 #
+# **硬性要求（实测踩过）**：configure 必须用 **Windows 风格绝对路径**调用（F:/... 而不是 /f/...）。
+# 否则 configure 生成的 conftest.c / Makefile 里会带 MSYS2 风格路径，而 shim 调的是**原生 Windows**
+# clang，解析不了 /f/... —— 表现为 GMP 的 `checking size of mp_limb_t... 0` ->
+# `configure: error: Oops, mp_limb_t doesn't seem to work`（根因见 config.log 里的 gmp-h.in 路径）。
+#
 # 前置：
 #   - GCC 源码树已解压，gmp/mpfr/mpc 已放进树内（GCC 会内联构建它们）；
 #   - config.sub / configfsf.sub 已打补丁（见 ../UPSTREAM-PATCHES）；
