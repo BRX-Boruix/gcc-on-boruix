@@ -10,6 +10,10 @@
 # 又找不到 ld —— 报 "collect2: fatal error: cannot find 'ld'"。改为与 sysroot 的
 # boruix-clang **同一配方**直接调 ld.lld，既确定又少一层转译。
 set -e
+# 调试：BORUIX_CC_DEBUG=1 时把本次 argv 原样打到 stderr（排查 configure 探测的真实命令行）。
+if [ -n "$BORUIX_CC_DEBUG" ]; then
+  echo "boruix-cc argv: $*" >&2
+fi
 CLANG="F:/clang/18.1.8x86_64/bin/clang.exe"
 LLD="F:/clang/18.1.8x86_64/bin/ld.lld.exe"
 SYS="$BORUIX_SYSROOT"
