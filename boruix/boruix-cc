@@ -33,6 +33,8 @@ fi
 tmp=$(mktemp -d)
 objs=""
 cflags=""
+libs=""
+wl=""
 out="a.out"
 prev=""
 for a in "$@"; do
@@ -53,5 +55,8 @@ for a in "$@"; do
     *) : ;;
   esac
 done
+if [ -n "$BORUIX_CC_DEBUG" ]; then
+  echo "boruix-cc link: objs=[$objs] libs=[$libs] wl=[$wl]" >&2
+fi
 "$LLD" -o "$out" -e _start -nostdlib --no-dynamic-linker "$SYS/lib/user_main.o" $objs "$SYS/lib/libc.a" $libs $wl -z noexecstack -z norelro -T "$SYS/lib/linker.ld"
 rm -rf "$tmp"
