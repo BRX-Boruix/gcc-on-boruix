@@ -28,16 +28,26 @@ fi
 # 链接：.c 先编成 .o，再按 sysroot 的配方用 ld.lld 链接。
 tmp=$(mktemp -d)
 objs=""
+cflags=""
 out="a.out"
 prev=""
 for a in "$@"; do
   if [ "$prev" = "-o" ]; then out="$a"; prev=""; continue; fi
   case "$a" in
     -o) prev="-o" ;;
-    *.c) o="$tmp/$(basename "$a").o"; "$CLANG" $common -c "$a" -o "$o"; objs="$objs $o" ;;
+    *.c) o="$tmp/$(basename "$a").o"; "$CLANG" $common $cflags -c "$a" -o "$o"; objs="$objs $o" ;;
     *.o|*.a) objs="$objs $a" ;;
+    # 外部库与库搜索路径必须透传（第 60 轮实测：MPFR 的 configure 要"链接一次 gmp.h"，
+    # 丢了 -l/-L 就会报 "there is an incompatibility between gmp.h and the compiler"——
+    # 其实只是没链上 -lgmp）。顺序：对象在前、库在后（符号解析方向）。
+    # 编译期影响路径/语义的旗标必须保留：链接分支里若有 .c 要现编，
+    # 丢了 -I 就会 "fatal error: gmp.h file not found"（第 60 轮 MPFR 实测）。
+    -I*|-D*|-U*|-isystem*|-include*|-std=*) cflags="$cflags $a" ;;
+    -l*|-L*) libs="$libs $a" ;;
+    # -Wl,a,b -> 直接给 ld.lld 的 a b。
+    -Wl,*) wl="$wl $(echo "$a" | sed "s/^-Wl,//; s/,/ /g")" ;;
     *) : ;;
   esac
 done
-"$LLD" -o "$out" -e _start -nostdlib --no-dynamic-linker "$SYS/lib/user_main.o" $objs "$SYS/lib/libc.a" -z noexecstack -z norelro -T "$SYS/lib/linker.ld"
+"$LLD" -o "$out" -e _start -nostdlib --no-dynamic-linker "$SYS/lib/user_main.o" $objs "$SYS/lib/libc.a" $libs $wl -z noexecstack -z norelro -T "$SYS/lib/linker.ld"
 rm -rf "$tmp"

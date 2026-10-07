@@ -17,7 +17,7 @@
 | 构建树 | 已解压（选择性解压，跳过 `gcc/testsuite` 等不需要的子树） |
 | 让工具链认识 `boruix` OS | **已做**：`config.sub` 追加 `| boruix*`（见 `UPSTREAM-PATCHES`）。实测 `config.sub x86_64-boruix` → `x86_64-pc-boruix` |
 | 构建方式 | **Canadian cross**：`--build=x86_64-pc-msys`（MSYS2 gcc 编构建期工具）、`--host=x86_64-boruix`（用 clang 18 + Boruix sysroot 编**在 Boruix 内运行**的 gcc/cc1）、`--target=x86_64-elf`（裸机 x86-64，与 BORUIX 的 ABI 同形；用 Boruix sysroot 提供 libc） |
-| 宿主编译器 shim | `boruix/boruix-cc`：把 `-c/-E/-S` 透传给 clang，链接时追加 Boruix 的 `user_main.o` + `libc.a` + `linker.ld`（configure 需要支持 `-c` 的驱动，而 sysroot 自带的 `boruix-clang` 是一次性驱动）。**注意**：链接直接调 `ld.lld`——让 clang 驱动链接会退化成用 gcc 当链接器驱动，实测失败 |
+| 宿主编译器 shim | `boruix/boruix-cc`：把 `-c/-E/-S` 透传给 clang，链接时追加 Boruix 的 `user_main.o` + `libc.a` + `linker.ld`（configure 需要支持 `-c` 的驱动，而 sysroot 自带的 `boruix-clang` 是一次性驱动）。**注意两点**：① 链接直接调 `ld.lld`——让 clang 驱动链接会退化成用 gcc 当链接器驱动，实测失败；② **必须透传 `-l`/`-L`/`-Wl,`**——丢了它们，MPFR 的 configure 会报 `there is an incompatibility between gmp.h and the compiler`（其实只是没链上 `-lgmp`） |
 | 工具链二进制（`AR`/`RANLIB`/…） | **显式传 LLVM 工具**（Boruix 没有 binutils；归档只是容器、与目标无关）。见 `boruix/configure-boruix.sh` |
 | 路径风格（**实测踩过的坑**） | configure 必须用 **Windows 风格绝对路径**调用（`F:/...` 而非 `/f/...`）：否则生成文件里带 MSYS2 路径，**原生 clang 解析不了**，表现为 GMP 的 `mp_limb_t doesn't seem to work` |
 | GCC configure（Canadian cross） | **已通过**（`host system type... x86_64-pc-boruix`、`whether the C compiler works... yes`、`config.status: creating Makefile`） |
