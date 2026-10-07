@@ -61,5 +61,10 @@ CC="sh $HERE_WIN/boruix-cc" \
   --without-headers --disable-libssp --disable-libquadmath --disable-threads \
   --disable-libatomic --disable-libgomp --disable-libitm --disable-libsanitizer \
   --without-isl \
+  # fixincludes 是**宿主构建期**的头文件修补工具（不是系统内 GCC 的组成部分），它要 `alarm(10)`
+  # 给子进程装超时，而本系统**没有 interval timer**（`alarm` 已核实判不支持，见
+  # docs/TODO/libc-posix-surface.md）。**不提供 alarm 是有意的**：编译期报 `call to undeclared
+  # function 'alarm'` 比「声明了却永远不发 SIGALRM」诚实。故用 --disable-fixincludes 排除该工具。
+  --disable-fixincludes \
   --with-gmp="$PREFIX_WIN" --with-mpfr="$PREFIX_WIN" --with-mpc="$PREFIX_WIN"
 echo "CONFIGURE_DONE"
