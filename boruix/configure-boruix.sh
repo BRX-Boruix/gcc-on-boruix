@@ -11,10 +11,25 @@
 # `configure: error: Oops, mp_limb_t doesn't seem to work`（根因见 config.log 里的 gmp-h.in 路径）。
 #
 # 前置：
-#   - GCC 源码树已解压，gmp/mpfr/mpc 已放进树内（GCC 会内联构建它们）；
+#   - GCC 源码树已解压；**树内 gmp/mpfr/mpc 必须改名禁用**（见下）；
 #   - config.sub / configfsf.sub 已打补丁（见 ../UPSTREAM-PATCHES）；
 #   - BORUIX_SYSROOT 指向 `python tools/main.py install --prefix <dir>` 的产物；
 #   - boruix/boruix-cc 可用（宿主编译器 shim）。
+#
+# **前置库 GMP/MPFR/MPC：不用树内内联构建，改为各自装进同一 prefix 再 --with-* 指过去。**
+# 实测（2026-10，逐条真实报错驱动）：
+#   - 树内内联构建 GMP 报 `configure: error: Oops, mp_limb_t doesn't seem to work`
+#     （Canadian cross 下 GMP 自己测不出 mp_limb_t 宽度）。把树内 gmp/mpfr/mpc 改名成
+#     *.disabled 让 --with-* 生效后，三个库各自 --host=x86_64-boruix 构建安装成功：
+#     GMP 516 个目标文件 / libgmp.a 1081482 B；MPFR 257 / libmpfr.a 3283340 B；
+#     MPC 86 / libmpc.a 908268 B。
+#   - **每个自带 autotools 的子项目都要打 config.sub 补丁**，包括 MPC 的
+#     `build-aux/config.sub`——否则 `configure: error: Invalid configuration
+#     'x86_64-pc-boruix': OS 'boruix' not recognized`。（此前记的「mpc 没有 config.sub」
+#     是**错的**：它只是放在 build-aux/ 下，不在顶层。）
+#
+# **为什么 --with-* 的值必须是 Windows 风格绝对路径**：它会被写进生成的 Makefile，
+# 最终作为 -I/-L 传给**原生 Windows** clang；MSYS 风格的 /f/... clang 解析不了。
 #
 # **为什么显式传 AR/RANLIB/NM/OBJDUMP/STRIP**：跨构建下 GCC 默认去找 `${host}-ar`
 # （即 x86_64-boruix-ar），而 Boruix 没有 binutils。**归档只是容器，与目标无关**，故用 LLVM
@@ -24,15 +39,19 @@ set -e
 : "${BORUIX_SYSROOT:?需要 BORUIX_SYSROOT（install --prefix 的产物）}"
 BIN=${BORUIX_LLVM_BIN:-/f/clang/18.1.8x86_64/bin}
 HERE=$(cd "$(dirname "$0")" && pwd)
+# Windows 风格副本：CC 的值要交给原生 clang 链路（见文件头「Windows 风格绝对路径」）。
+HERE_WIN=$(cd "$(dirname "$0")" && pwd -W 2>/dev/null || pwd)
 BUILD_DIR=${1:-/f/boruix-project/.tmp-gcc/build}
 SRC_DIR=${2:-/f/boruix-project/.tmp-gcc/gcc-14.2.0}
+# 前置库安装 prefix（Windows 风格；可用 BORUIX_GCC_PREFIX_WIN 覆盖）。
+PREFIX_WIN=${BORUIX_GCC_PREFIX_WIN:-F:/boruix-project/.tmp-gcc/host-prefix}
 mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
 
 CC_FOR_BUILD=/usr/bin/gcc \
 AR="$BIN/llvm-ar.exe" RANLIB="$BIN/llvm-ranlib.exe" NM="$BIN/llvm-nm.exe" \
 OBJDUMP="$BIN/llvm-objdump.exe" STRIP="$BIN/llvm-strip.exe" \
-CC="sh $HERE/boruix-cc" \
+CC="sh $HERE_WIN/boruix-cc" \
 "$SRC_DIR/configure" \
   --build=x86_64-pc-msys \
   --host=x86_64-boruix \
@@ -41,5 +60,6 @@ CC="sh $HERE/boruix-cc" \
   --disable-nls --disable-bootstrap --disable-shared --disable-multilib \
   --without-headers --disable-libssp --disable-libquadmath --disable-threads \
   --disable-libatomic --disable-libgomp --disable-libitm --disable-libsanitizer \
-  --without-isl
+  --without-isl \
+  --with-gmp="$PREFIX_WIN" --with-mpfr="$PREFIX_WIN" --with-mpc="$PREFIX_WIN"
 echo "CONFIGURE_DONE"
