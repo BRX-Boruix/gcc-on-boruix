@@ -34,6 +34,28 @@ $ ./config.sub x86_64-unknown-boruix -> x86_64-unknown-boruix
 运行。真正的工程量在**宿主端口**（GCC 的 driver/cc1 要跑在 Boruix libc 上），
 见 `docs/TODO/3p.md` 的 3P6-3。
 
+## 2. 内联前置库的 `config.sub` / `configfsf.sub` —— 同一个白名单问题（2 个文件各 1 处）
+
+**为什么必须改**：GCC 的 in-tree 前置库（GMP/MPFR/MPC）由**各自的** autotools 脚本配置，用的是
+**各自**的 `config.sub`（GMP 的 `config.sub` 只是包装脚本，真正干活的是同目录的 `configfsf.sub`）。
+它们同样不认识 `boruix`。实测 `make all-gcc` 的第一次尝试就死在这里：
+
+```text
+configure: error: /bin/sh ../../gcc-14.2.0/gmp/config.sub none-pc-boruix failed
+```
+
+**改动位置**：
+
+- `gmp/configfsf.sub`：`| fiwix* | mlibc* )` → `| fiwix* | mlibc* | boruix* )`
+- `mpfr/config.sub`：`| fiwix* )` → `| fiwix* | boruix* )`
+- （`mpc/` 目录**不带** `config.sub`——它沿用上层传入的规范三元组，无需改。）
+
+**改后实测**：`gmp/config.sub none-pc-boruix` → `none-pc-boruix`；`mpfr/config.sub none-pc-boruix`
+→ `none-pc-boruix`。
+
+**教训（值得记）**：给一个新 OS 名「开白名单」不是改一处就够——**树里每个自带 autotools 的子项目
+都有一份自己的 config.sub**。这是把工具链搬到新系统时的通用坑。
+
 ## 为什么补丁这么少（目标）
 
 其余差异尽量用**配置**吸收（`--build/--host/--target`、`--enable-languages=c`、
