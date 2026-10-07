@@ -1,0 +1,40 @@
+# 上游补丁清单（UPSTREAM PATCHES）—— GCC 14.2.0
+
+本仓把 **GCC** 带到 BORUIX（阶段 6 / 3P6-3）。移植过程中对**上游文件**做的改动记在这里；
+再同步上游时按此清单逐项重做，或确认上游已原生支持。
+
+## 1. `config.sub` —— 让工具链认识 `boruix` 这个 OS（1 处插入）
+
+**为什么必须改**：GCC 的 `config.sub` 有一张**已知 OS 白名单**，`boruix` 不在其中：
+
+```text
+$ ./config.sub x86_64-boruix
+Invalid configuration `x86_64-boruix': OS `boruix' not recognized
+```
+
+而本阶段要求把 GCC 构建成 **hosted-on-Boruix**（`--host=x86_64-boruix`）——没有这一步，
+configure 连启动都做不到。
+
+**改动位置**：`config.sub` 的 "Now accept the basic system types." 列表（14.2.0 的 1751 行
+附近），在末尾追加 `| boruix*`：
+
+```diff
+-	     | fiwix* )
++	     | fiwix* | boruix* )
+```
+
+**改后实测**：
+
+```text
+$ ./config.sub x86_64-boruix         -> x86_64-pc-boruix
+$ ./config.sub x86_64-unknown-boruix -> x86_64-unknown-boruix
+```
+
+**诚实边界（S09）**：这一步只让工具链**认识这个名字**，**不等于** GCC 已经能在 Boruix 上
+运行。真正的工程量在**宿主端口**（GCC 的 driver/cc1 要跑在 Boruix libc 上），
+见 `docs/TODO/3p.md` 的 3P6-3。
+
+## 为什么补丁这么少（目标）
+
+其余差异尽量用**配置**吸收（`--build/--host/--target`、`--enable-languages=c`、
+`--without-headers`、`--disable-*` 等），不动上游源码。**补丁越少，跟进上游越容易。**

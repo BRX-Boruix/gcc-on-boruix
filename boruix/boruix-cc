@@ -1,0 +1,43 @@
+#!/bin/sh
+# boruix-cc —— 给 GCC 的 Canadian cross 当 $CC 用：用 clang 18 + Boruix sysroot 产出
+# **能在 Boruix 内运行**的 ELF（host=boruix 的编译器）。
+#
+# 为什么需要它：sysroot 自带的 boruix-clang 是一次性驱动（吃 .c 出 .elf），不支持
+# configure 需要的 -c/-E/-S 与 -o 组合。
+#
+# 为什么链接**直接调 ld.lld**（而不是让 clang 驱动）：实测（configure 的第一次尝试）
+# clang 对裸机目标 `x86_64-unknown-none` 会**退化成用 gcc 当链接器驱动**，而 MSYS2 的 gcc
+# 又找不到 ld —— 报 "collect2: fatal error: cannot find 'ld'"。改为与 sysroot 的
+# boruix-clang **同一配方**直接调 ld.lld，既确定又少一层转译。
+set -e
+CLANG="F:/clang/18.1.8x86_64/bin/clang.exe"
+LLD="F:/clang/18.1.8x86_64/bin/ld.lld.exe"
+SYS="$BORUIX_SYSROOT"
+common="--target=x86_64-unknown-none -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -O2 -I$SYS/include"
+
+link=1
+for a in "$@"; do
+  case "$a" in
+    -c|-E|-S) link=0 ;;
+  esac
+done
+if [ "$link" = 0 ]; then
+  exec "$CLANG" $common "$@"
+fi
+
+# 链接：.c 先编成 .o，再按 sysroot 的配方用 ld.lld 链接。
+tmp=$(mktemp -d)
+objs=""
+out="a.out"
+prev=""
+for a in "$@"; do
+  if [ "$prev" = "-o" ]; then out="$a"; prev=""; continue; fi
+  case "$a" in
+    -o) prev="-o" ;;
+    *.c) o="$tmp/$(basename "$a").o"; "$CLANG" $common -c "$a" -o "$o"; objs="$objs $o" ;;
+    *.o|*.a) objs="$objs $a" ;;
+    *) : ;;
+  esac
+done
+"$LLD" -o "$out" -e _start -nostdlib --no-dynamic-linker "$SYS/lib/user_main.o" $objs "$SYS/lib/libc.a" -z noexecstack -z norelro -T "$SYS/lib/linker.ld"
+rm -rf "$tmp"

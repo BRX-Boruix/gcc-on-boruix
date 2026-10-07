@@ -4,7 +4,21 @@
 
 把 **GCC** 带到 BORUIX 上——让这个系统能够用 GCC 编译代码。
 
-> **仓库状态：规划中。** 目前是空仓库，尚未包含代码。
+> **仓库状态：已开工（2026-10，阶段 6 / 3P6-3）。** 已有第一项上游补丁与构建脚本骨架；
+> **GCC 尚未能在 BORUIX 内运行**——真正的工程量是**宿主端口**（见下）。
+
+---
+
+## 当前进展（如实，S09）
+
+| 事项 | 状态 |
+| --- | --- |
+| GCC 14.2.0 源码 + 前置库（gmp/mpfr/mpc） | **已取全**（可续传下载；本地 SHA512 记于 `docs/TODO/3p.md`） |
+| 构建树 | 已解压（选择性解压，跳过 `gcc/testsuite` 等不需要的子树） |
+| 让工具链认识 `boruix` OS | **已做**：`config.sub` 追加 `| boruix*`（见 `UPSTREAM-PATCHES`）。实测 `config.sub x86_64-boruix` → `x86_64-pc-boruix` |
+| 构建方式 | **Canadian cross**：`--build=x86_64-pc-msys`（MSYS2 gcc 编构建期工具）、`--host=x86_64-boruix`（用 clang 18 + Boruix sysroot 编**在 Boruix 内运行**的 gcc/cc1）、`--target=x86_64-elf`（裸机 x86-64，与 BORUIX 的 ABI 同形；用 Boruix sysroot 提供 libc） |
+| 宿主编译器 shim | `boruix/boruix-cc`：把 `-c/-E/-S` 透传给 clang，链接时追加 Boruix 的 `user_main.o` + `libc.a` + `linker.ld`（configure 需要支持 `-c` 的驱动，而 sysroot 自带的 `boruix-clang` 是一次性驱动） |
+| **GCC 在 Boruix 内运行** | **未达成**——这是本仓的主体工作 |
 
 ---
 
