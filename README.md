@@ -63,22 +63,35 @@ GCC 支持的目标平台数量是现有编译器里最多的，且经过数十�
 
 具体采用哪条路线（直接在 BORUIX 上自举，还是先做交叉编译器）属于尚未确定的设计问题。
 
-## 仓库里会有什么
+## 仓库里有什么
 
-将来这里会**克隆 GCC 的源码树**，再加上 BORUIX 相关的移植部分——目标定义、运行时适配、构建
-脚本。
+**GCC 源码树本身不入版本控制**：它解压在工作区的 `.tmp-gcc/gcc-14.2.0/`（取源与 SHA512 记于
+`docs/TODO/3p.md`）。本仓只放**对上游的改动与构建适配**——`UPSTREAM-PATCHES`（上游补丁清单）、
+`boruix/boruix-cc`（宿主编译器 shim）、`boruix/configure-boruix.sh`（Canadian-cross 配方）。
 
 ## 许可证
 
-**本仓库不附带许可证文件**，这是有意的：
+**本仓携带与上游一致的许可证文本**（2026-10 起；此前刻意不放，变更原因见下）：
 
-- GCC 本身由自由软件基金会发布，采用 **GNU 通用公共许可证（GPL）**，并附带运行时库例外条款。
-  许可证的权威文本与说明随 GCC 源码一同提供。
-- 因此本仓库**不能**统一声明为 MIT 之类的宽松许可证——一旦 GCC 源码进入这里，整个仓库的授权
-  就必须服从 GCC 的条款。
-- 克隆进来的源码与将来为本项目编写的移植代码，其授权方式需要在引入时逐项明确。
+| 文件 | 内容 | 来源（**逐字拷贝**） |
+| --- | --- | --- |
+| `LICENSE` | GNU GPL v3 全文 | GCC 14.2.0 的 `gcc/COPYING3` |
+| `LICENSE.RUNTIME` | GCC Runtime Library Exception v3.1 | GCC 14.2.0 的 `COPYING.RUNTIME` |
 
-在仓库里还没有代码的时候先放一份许可证，只会造成误导。正确的做法是等源码进来时一并处理。
+GCC 的授权是 **GPL-3.0-or-later**（GCC 源码头部的标准声明：either version 3, or (at your option)
+any later version），运行库另附上面那份例外条款。
+
+**为什么现在放了**：本仓**确实含有对上游 GCC 的改动**——`UPSTREAM-PATCHES` 记录了对 `config.sub` /
+`configfsf.sub` 等上游文件的修改，`boruix/` 下的 shim 与 configure 配方也是针对 GCC 的构建适配。
+内容既然是对 GPL 程序的衍生工作，**携带上游许可证文本才是与上游一致的做法**。
+此前「等源码进来时一并处理」的结论**在当时成立**（仓库还没有代码），但源码现在已经以补丁形式
+进来了。
+
+**权威声明仍是 GCC 自己的**：上面两份是 GCC 14.2.0 发行版里的逐字拷贝，不是本项目的改写；
+若有不一致，以 GCC 上游为准。
+
+**诚实边界**：本仓**不包含** GCC 源码树本身（它在 `.tmp-gcc/` 里，不入版本控制）。所以「本仓的
+授权」与「GCC 本体的授权」不是一回事——前者按上游条款授权，后者随其源码分发。
 
 ## 相关项目
 
@@ -144,25 +157,40 @@ Porting GCC to a new system is not a matter of "compile it and done". It involve
 Which route to take — bootstrapping directly on BORUIX, or starting with a cross-compiler — is an
 open design question.
 
-## What the repository will hold
+## What the repository holds
 
-GCC's **source tree will be cloned here** in the future, together with the BORUIX-specific porting
-work: target definitions, runtime adaptations, and build scripts.
+**The GCC source tree itself is not version-controlled here**: it is unpacked into the workspace's
+`.tmp-gcc/gcc-14.2.0/` (sources and SHA512 recorded in `docs/TODO/3p.md`). This repository holds only
+the **changes to upstream and the build adaptations** — `UPSTREAM-PATCHES` (upstream patch list),
+`boruix/boruix-cc` (host compiler shim), and `boruix/configure-boruix.sh` (the Canadian-cross
+recipe).
 
 ## License
 
-**This repository ships no license file**, deliberately:
+**This repository carries the upstream license texts** (as of 2026-10; see below for why it
+deliberately did not before):
 
-- GCC itself is published by the Free Software Foundation under the **GNU General Public License
-  (GPL)**, with a runtime library exception. The authoritative license text and its explanation come
-  with the GCC sources.
-- This repository therefore **cannot** be declared under a permissive license such as MIT — once GCC
-  sources are present, the repository's licensing is governed by GCC's terms.
-- The licensing of both the cloned sources and any porting code written for this project needs to be
-  established item by item as that code is introduced.
+| File | Content | Source (**verbatim copy**) |
+| --- | --- | --- |
+| `LICENSE` | GNU GPL v3, full text | GCC 14.2.0's `gcc/COPYING3` |
+| `LICENSE.RUNTIME` | GCC Runtime Library Exception v3.1 | GCC 14.2.0's `COPYING.RUNTIME` |
 
-Placing a license file here while the repository holds no code would only be misleading. The right
-time to settle it is when the sources arrive.
+GCC is licensed **GPL-3.0-or-later** (GCC's own source headers: "either version 3, or (at your
+option) any later version"), with the runtime exception above applying to the runtime libraries.
+
+**Why this changed**: this repository **does contain modifications to upstream GCC** —
+`UPSTREAM-PATCHES` records edits to upstream files such as `config.sub` and `configfsf.sub`, and the
+shim and configure recipe under `boruix/` are build adaptations for GCC. Since the content is
+derivative work on a GPL program, **carrying the upstream license texts is the consistent choice**.
+The earlier conclusion — settle it when the sources arrive — was correct **at the time** (the
+repository held no code), but the sources have since arrived, in patch form.
+
+**The authoritative statement remains GCC's own**: the two files above are verbatim copies from the
+GCC 14.2.0 distribution, not rewrites by this project; where they differ, GCC upstream wins.
+
+**Honest boundary**: this repository does **not** contain the GCC source tree itself (it lives in
+`.tmp-gcc/`, untracked). So "this repository's licensing" and "GCC's licensing" are not the same
+thing — the former is governed by the upstream terms, the latter travels with its sources.
 
 ## Related projects
 
