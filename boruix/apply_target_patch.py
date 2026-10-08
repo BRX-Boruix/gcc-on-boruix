@@ -447,20 +447,28 @@ def main():
     src_sd = os.path.join(os.path.dirname(os.path.abspath(__file__)), "boruix-stdint.h")
     if not os.path.isfile(src_sd):
         return die("找不到同目录的 boruix-stdint.h（应与本脚本同放）")
-    if os.path.isfile(sd):
-        print("[OK] gcc/config/boruix-stdint.h 已存在（幂等，未改动）")
+    _want_sd = open(src_sd, encoding="utf-8", errors="surrogateescape").read()
+    _have_sd = (open(sd, encoding="utf-8", errors="surrogateescape").read()
+                if os.path.isfile(sd) else None)
+    if _have_sd == _want_sd:
+        print("[OK] gcc/config/boruix-stdint.h 已是目标状态且内容一致（幂等，未改动）")
     else:
         import shutil as _sh
         _sh.copyfile(src_sd, sd)
-        print("[OK] 已拷入 gcc/config/boruix-stdint.h")
+        print("[OK] 已拷入/更新 gcc/config/boruix-stdint.h" if _have_sd is not None
+              else "[OK] 已拷入 gcc/config/boruix-stdint.h")
 
+    # boruix.h **完全由本脚本生成**，故"幂等"就是"内容一致才跳过"——与插入点 1/2/3 同一条规矩。
+    # 此前它只判"文件是否存在"，于是我改了 BORUIX_H 后脚本报"已存在（未改动）"，新内容从未写入。
     h = os.path.join(a.tree, "gcc", "config", "boruix.h")
-    if os.path.isfile(h):
-        print("[OK] gcc/config/boruix.h 已存在（幂等，未改动）")
+    _have_h = (open(h, encoding="utf-8", errors="surrogateescape").read()
+               if os.path.isfile(h) else None)
+    if _have_h == BORUIX_H:
+        print("[OK] gcc/config/boruix.h 已是目标状态且内容一致（幂等，未改动）")
     else:
         with open(h, "w", encoding="utf-8", newline="\n") as f:
             f.write(BORUIX_H)
-        print("[OK] 已写出 gcc/config/boruix.h")
+        print("[OK] 已写出/更新 gcc/config/boruix.h")
 
     if a.emit_patch:
         os.makedirs(a.emit_patch, exist_ok=True)
