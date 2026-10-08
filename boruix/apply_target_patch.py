@@ -69,8 +69,12 @@ INSERT2 = ('x86_64-*-boruix*)\n'
 #  1) **线程**：本系统没有 pthread 面。这里**机械拒绝**「假装有线程」的配置（必须 --disable-threads），
 #     而不是只在文档里建议。`enable_threads` 由 configure.ac:170 的 GLIBCXX_ENABLE_THREADS 设置，
 #     早于 406 行的 GLIBCXX_CROSSCONFIG ⇒ 本处已就位（已核实）。
-#  2) **故意不 AC_DEFINE 任何 `HAVE_*F`**：那些是「目标 libc 有该函数」的断言，而交叉构建跑不了
-#     运行时探测。**未验证的能力不写进去**（S09）——等 libgcc/libstdc++ 真构建时按实际缺失证据再补。
+#  2) **`HAVE_*F` 是证据驱动的**（S09）：那些是「目标 libc 有该函数」的断言，而交叉构建跑不了运行时
+#     探测。首版**故意一个都不定义**；到 3P6-3 真构建 libstdc++ 时，红态按设计出现了——
+#     不定义 ⇒ libstdc++ 去编 `math_stubs_float.cc` 的"粗糙近似"实现，与 libc 的真实符号**同名**，
+#     既污染链接结果，又与 `<math.h>` 的声明冲突（实测 60+ 条 conflicting declaration）。
+#     此时断言**已经挣到**：libc.a 里 llvm-nm 读得到这些符号，且 tools/checks/math_verify 的
+#     宿主对照表证明它们 ≤1 ulp。故逐个补上。**`*L`（long double）一个都不补**——本系统确实没有。
 ANCHOR3 = '  *)\n    AC_MSG_ERROR([No support for this host/target combination.])\n   ;;\n'
 INSERT3 = ('  x86_64-*-boruix*)\n'
            '    dnl Boruix（见 gcc-on-boruix/boruix/PORTING-TARGET.md）。\n'
@@ -81,9 +85,39 @@ INSERT3 = ('  x86_64-*-boruix*)\n'
            '      AC_MSG_ERROR([Boruix has no pthread support; configure libstdc++ with --disable-threads.])\n'
            '    fi\n'
            '    dnl\n'
-           '    dnl 2) **故意不 AC_DEFINE 任何 HAVE_*F**：那些是「目标 libc 有该函数」的断言，而交叉\n'
-           '    dnl    构建跑不了运行时探测。**未验证的能力不写进去**（S09）——等真构建时按实际缺失\n'
-           '    dnl    证据再补（证据驱动，不是猜）。\n'
+           '    dnl 2) **C99 float 数学：逐个都有实测证据**（S09）。判据两条：libc.a 里 llvm-nm\n'
+           '    dnl    读得到该符号；tools/checks/math_verify 的宿主对照表证明它 ≤1 ulp。\n'
+           '    dnl    **不定义它们的后果是硬失败，不是"少个优化"**：libstdc++ 会去编\n'
+           '    dnl    math_stubs_float.cc 里那批"粗糙近似"（fabsf 写成 (float)fabs(x) 之类），\n'
+           '    dnl    与 libc 的真实符号**同名**——既污染链接结果，又与 <math.h> 的声明冲突\n'
+           '    dnl    （3P6-3 实测 60+ 条 conflicting declaration）。\n'
+           '    AC_DEFINE(HAVE_ACOSF)\n'
+           '    AC_DEFINE(HAVE_ASINF)\n'
+           '    AC_DEFINE(HAVE_ATAN2F)\n'
+           '    AC_DEFINE(HAVE_ATANF)\n'
+           '    AC_DEFINE(HAVE_CEILF)\n'
+           '    AC_DEFINE(HAVE_COSF)\n'
+           '    AC_DEFINE(HAVE_COSHF)\n'
+           '    AC_DEFINE(HAVE_EXPF)\n'
+           '    AC_DEFINE(HAVE_FABSF)\n'
+           '    AC_DEFINE(HAVE_FLOORF)\n'
+           '    AC_DEFINE(HAVE_FMODF)\n'
+           '    AC_DEFINE(HAVE_FREXPF)\n'
+           '    AC_DEFINE(HAVE_HYPOTF)\n'
+           '    AC_DEFINE(HAVE_LDEXPF)\n'
+           '    AC_DEFINE(HAVE_LOG10F)\n'
+           '    AC_DEFINE(HAVE_LOGF)\n'
+           '    AC_DEFINE(HAVE_MODFF)\n'
+           '    AC_DEFINE(HAVE_POWF)\n'
+           '    AC_DEFINE(HAVE_SINF)\n'
+           '    AC_DEFINE(HAVE_SINHF)\n'
+           '    AC_DEFINE(HAVE_SQRTF)\n'
+           '    AC_DEFINE(HAVE_TANF)\n'
+           '    AC_DEFINE(HAVE_TANHF)\n'
+           '    dnl\n'
+           '    dnl 3) **故意不定义任何 *L（long double）**：本系统确实**没有** long double 数学\n'
+           '    dnl    函数（只有 ldexpl）。libstdc++ 因此会编 math_stubs_long_double.cc 的替身实现——\n'
+           '    dnl    那是**如实**的（我们确实没有），不假装有（S09）。\n'
            '    ;;\n')
 
 BORUIX_H = '''/* Boruix 的 target 事实与**链接规格**（只写已验证的，S06/S13）。
@@ -359,7 +393,20 @@ def main():
     with open(h2, encoding="utf-8", errors="surrogateescape") as f:
         src2 = f.read()
     if "x86_64-*-boruix*)" in src2:
-        print("[OK] libgcc/config.host 已是目标状态（幂等，未改动）")
+        if INSERT2 in src2:
+            print("[OK] libgcc/config.host 已是目标状态且内容一致（幂等，未改动）")
+        else:
+            # **内容不一致时必须替换**——与插入点 1 同一个坑（见其注释）：
+            # 此前这里只判「分支是否存在」，于是改了 INSERT2 后脚本报「已是目标状态」，
+            # **新内容从未写入**。幂等 ≠ 只判存在。
+            import re as _re2
+            pat2 = _re2.compile(r"x86_64-\*-boruix\*\)\n(?:\t.*\n)*?\t;;\n")
+            new2, n2 = pat2.subn(INSERT2, src2, count=1)
+            if n2 != 1:
+                return die("libgcc 的 boruix 分支存在但与当前 INSERT2 不一致，且无法安全定位 => 拒绝自动替换")
+            with open(h2, "w", encoding="utf-8", errors="surrogateescape", newline="") as f:
+                f.write(new2)
+            print("[OK] libgcc/config.host 的 boruix 分支内容已更新为新版")
     else:
         if src2.count(ANCHOR2) != 1:
             return die("libgcc 锚点出现 %d 次（期望 1）——拒绝盲插" % src2.count(ANCHOR2))
@@ -374,7 +421,20 @@ def main():
     with open(h3, encoding="utf-8", errors="surrogateescape") as f:
         src3 = f.read()
     if "x86_64-*-boruix*)" in src3:
-        print("[OK] crossconfig.m4 已是目标状态（幂等，未改动）")
+        if INSERT3 in src3:
+            print("[OK] crossconfig.m4 已是目标状态且内容一致（幂等，未改动）")
+        else:
+            # **内容不一致时必须替换**——同一个坑的第三次（插入点 1 已修，2/3 此次一并修）。
+            # 实测代价：改了 INSERT3（补 HAVE_*F）后脚本报「已是目标状态」，新内容从未写入
+            # ⇒ 重新 configure 仍不定义 HAVE_*F，math_stubs 照旧编出来。
+            import re as _re3
+            pat3 = _re3.compile(r"  x86_64-\*-boruix\*\)\n(?:.*\n)*?    ;;\n")
+            new3, n3 = pat3.subn(INSERT3, src3, count=1)
+            if n3 != 1:
+                return die("crossconfig.m4 的 boruix 分支存在但与当前 INSERT3 不一致，且无法安全定位 => 拒绝自动替换")
+            with open(h3, "w", encoding="utf-8", errors="surrogateescape", newline="") as f:
+                f.write(new3)
+            print("[OK] crossconfig.m4 的 boruix 分支内容已更新为新版")
     else:
         if src3.count(ANCHOR3) != 1:
             return die("crossconfig.m4 锚点出现 %d 次（期望 1）——拒绝盲插" % src3.count(ANCHOR3))
