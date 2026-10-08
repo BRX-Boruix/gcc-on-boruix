@@ -86,7 +86,30 @@ INSERT3 = ('  x86_64-*-boruix*)\n'
            '    dnl    证据再补（证据驱动，不是猜）。\n'
            '    ;;\n')
 
-BORUIX_H = '''/* Boruix 的 target 事实（**只写已验证的**，S06/S13）。
+BORUIX_H = '''/* Boruix 的 target 事实与**链接规格**（只写已验证的，S06/S13）。
+
+   ## 链接规格（LINK_SPEC 等）—— 来路是真实报错，不是预猜
+
+   libgcc 的 configure 报：
+       configure: error: cannot compute suffix of object files: cannot compile
+   真因：xgcc 默认去找 crt1.o/crti.o/crtbegin.o 与系统 ld，而本系统都没有，
+   它会退到 Cygwin 的 PE 链接器。
+
+   本规格与 `gcc-on-boruix/boruix/boruix-cc`（sysroot 的 C 驱动）**同一配方**：
+   `ld.lld -e _start -nostdlib --no-dynamic-linker -z noexecstack -z norelro -T linker.ld`。
+   链接器本身由 configure 的 `--with-ld=<ld.lld>` 指定，故此处只写**参数**。
+   `%R` = sysroot 前缀（由 configure 的 --with-sysroot 提供）。 */
+
+#undef STARTFILE_SPEC
+#define STARTFILE_SPEC "%{!nostdlib:%{!r:%R/lib/user_main.o%s}}"
+#undef ENDFILE_SPEC
+#define ENDFILE_SPEC ""
+#undef LIB_SPEC
+#define LIB_SPEC "%{!nostdlib:-L%R/lib -lc}"
+#undef LINK_SPEC
+#define LINK_SPEC "%{!r:-m elf_x86_64 -e _start --no-dynamic-linker -z noexecstack -z norelro -T %R/lib/linker.ld}"
+
+/* Boruix 的 target 事实（**只写已验证的**，S06/S13）。
 
    本文件由 gcc-on-boruix/boruix/apply_target_patch.py 施加，**不是上游文件**；
    上游提交时随 patches/ 一起走。
