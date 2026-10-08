@@ -327,7 +327,21 @@ def main():
         return 0
 
     if has_insert:
-        print("[OK] config.gcc 已是目标状态（幂等，未改动）")
+        if INSERT in src:
+            print("[OK] config.gcc 已是目标状态且内容一致（幂等，未改动）")
+        else:
+            # **内容不一致时必须替换**（第 42 轮实测踩到）：此前只要「分支已存在」就跳过，
+            # 于是我改了 tm_file（加 boruix-stdint.h）后，脚本报「已是目标状态」，
+            # **新 tm_file 从未写入 config.gcc** ⇒ 构建仍报 __UINTPTR_TYPE__ 未定义。
+            # **幂等 ≠ 只判存在，还要判内容一致。**
+            import re as _re
+            pat = _re.compile(r"x86_64-\*-boruix\*\)\n(?:\t.*\n)*?\t;;\n")
+            new_src, n = pat.subn(INSERT, src, count=1)
+            if n != 1:
+                return die("boruix 分支存在但与当前 INSERT 不一致，且无法安全定位其范围 => 拒绝自动替换")
+            with open(cfg, "w", encoding="utf-8", errors="surrogateescape", newline="") as f:
+                f.write(new_src)
+            print("[OK] config.gcc 的 boruix 分支内容已更新为新版（含 boruix-stdint.h）")
     else:
         if ANCHOR not in src:
             return die("锚点（x86_64-*-elf* case 块）在源码树里**找不到**——源码树版本不是预期的 GCC 14.2，"
