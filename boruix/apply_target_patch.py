@@ -28,13 +28,13 @@ ANCHOR = ('x86_64-*-elf*)\n'
 
 # Boruix 的 case 块。
 # - 保留 i386/unix.h i386/att.h elfos.h i386/i386elf.h i386/x86-64.h：**ABI 事实**（x86-64 ELF/SysV）。
-# - **去掉 newlib-stdint.h**：它按 newlib 的头定义 stdint；Boruix 的 sysroot **已有自己的 <stdint.h>**，
+# - 用 **boruix-stdint.h**（提供类型宏）+ **use_gcc_stdint=provide**（GCC 装自己的 <stdint.h>）：
 #   两份并存会打架（S15 单点定义）。故 use_gcc_stdint=none：GCC 不提供 stdint。
 # - tmake_file 参照 x86_64-*-rdos*（同为小型 OS）。
 INSERT = ('x86_64-*-boruix*)\n'
           '\ttm_file="${tm_file} i386/unix.h i386/att.h elfos.h boruix-stdint.h i386/i386elf.h i386/x86-64.h boruix.h"\n'
           '\ttmake_file="i386/t-i386elf t-svr4"\n'
-          '\tuse_gcc_stdint=none\n'
+          '\tuse_gcc_stdint=provide\n'
           '\t;;\n')
 
 # ---- 插入点 2：libgcc/config.host ----
