@@ -100,6 +100,15 @@ BORUIX_H = '''/* Boruix 的 target 事实与**链接规格**（只写已验证�
    链接器本身由 configure 的 `--with-ld=<ld.lld>` 指定，故此处只写**参数**。
    `%R` = sysroot 前缀（由 configure 的 --with-sysroot 提供）。 */
 
+/* 汇编器：GCC 走 cc1 -> .s -> 汇编器 -> .o，而本工具链此前只有 clang 的 C->.o 一步到位
+   （boruix-cc shim 里没有独立汇编阶段）⇒ 这是我漏掉的一等前置（第 16 轮实测：
+   `build-boruix/gcc/as: line 114: exec: -o: invalid option`，因为没配 --with-as）。
+   做法：**旗标放 ASM_SPEC、程序名放 --with-as**（而不是写 .sh/.bat 包装——
+   Windows 下 GCC 直接 exec 包装脚本会失败，与 --with-ld 同一考虑）。
+   故 configure 需 `--with-as=F:/clang/18.1.8x86_64/bin/clang.exe`。 */
+#undef ASM_SPEC
+#define ASM_SPEC "--target=x86_64-unknown-none -c"
+
 #undef STARTFILE_SPEC
 #define STARTFILE_SPEC "%{!nostdlib:%{!r:%R/lib/user_main.o%s}}"
 #undef ENDFILE_SPEC
