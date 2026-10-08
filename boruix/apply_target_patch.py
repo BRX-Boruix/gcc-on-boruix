@@ -60,6 +60,32 @@ INSERT2 = ('x86_64-*-boruix*)\n'
           '\ttmake_file="$tmake_file i386/t-crtstuff t-crtstuff-pic t-libgcc-pic"\n'
           '\t;;\n')
 
+# ---- 插入点 3：libstdc++-v3/crossconfig.m4 ----
+#
+# **红态是硬的**：crossconfig.m4 的默认分支是 `AC_MSG_ERROR([No support for this host/target
+# combination.])` ⇒ boruix 会让 libstdc++ 的 configure **直接失败**。
+#
+# 两条设计决定（都写进分支注释，S39）：
+#  1) **线程**：本系统没有 pthread 面。这里**机械拒绝**「假装有线程」的配置（必须 --disable-threads），
+#     而不是只在文档里建议。`enable_threads` 由 configure.ac:170 的 GLIBCXX_ENABLE_THREADS 设置，
+#     早于 406 行的 GLIBCXX_CROSSCONFIG ⇒ 本处已就位（已核实）。
+#  2) **故意不 AC_DEFINE 任何 `HAVE_*F`**：那些是「目标 libc 有该函数」的断言，而交叉构建跑不了
+#     运行时探测。**未验证的能力不写进去**（S09）——等 libgcc/libstdc++ 真构建时按实际缺失证据再补。
+ANCHOR3 = '  *)\n    AC_MSG_ERROR([No support for this host/target combination.])\n   ;;\n'
+INSERT3 = ('  x86_64-*-boruix*)\n'
+           '    dnl Boruix（见 gcc-on-boruix/boruix/PORTING-TARGET.md）。\n'
+           '    dnl\n'
+           '    dnl 1) **线程**：本系统没有 pthread 面（libsys/libc 均未提供）。故这里**机械拒绝**\n'
+           '    dnl    「假装有线程」的配置——必须以 --disable-threads 配置。这是门，不是建议。\n'
+           '    if test "$enable_threads" != "no"; then\n'
+           '      AC_MSG_ERROR([Boruix has no pthread support; configure libstdc++ with --disable-threads.])\n'
+           '    fi\n'
+           '    dnl\n'
+           '    dnl 2) **故意不 AC_DEFINE 任何 HAVE_*F**：那些是「目标 libc 有该函数」的断言，而交叉\n'
+           '    dnl    构建跑不了运行时探测。**未验证的能力不写进去**（S09）——等真构建时按实际缺失\n'
+           '    dnl    证据再补（证据驱动，不是猜）。\n'
+           '    ;;\n')
+
 BORUIX_H = '''/* Boruix 的 target 事实（**只写已验证的**，S06/S13）。
 
    本文件由 gcc-on-boruix/boruix/apply_target_patch.py 施加，**不是上游文件**；
@@ -204,6 +230,34 @@ def main():
                 ok = False
             else:
                 print("[OK] libgcc：同块内无更早匹配 => 本分支有效")
+        # ---- 插入点 3：libstdc++-v3/crossconfig.m4 ----
+        h3 = os.path.join(a.tree, "libstdc++-v3", "crossconfig.m4")
+        if not os.path.isfile(h3):
+            print("[FAIL] 找不到 " + h3)
+            return 1
+        with open(h3, encoding="utf-8", errors="surrogateescape") as f:
+            src3 = f.read()
+        has3 = "x86_64-*-boruix*)" in src3
+        print("[check] libstdc++-v3/crossconfig.m4 已含 boruix 分支 = %s" % has3)
+        ok = ok and has3
+        if has3:
+            # 默认分支是**硬错误**——boruix 分支必须排在它之前才轮得到。
+            l3 = src3.splitlines()
+            # **注意缩进**：`crossconfig.m4` 的 case 标签**有 2 空格缩进**，与 `config.gcc` 的列 0 标签
+            # 不同。首版用 `startswith`（隐含要求列 0）⇒ 找不到行号、误报 FAIL。
+            # 这是本检查器**第 6 次**被实测打回——每次都记在这里，供后来者对照。
+            ours3 = next((i + 1 for i, l in enumerate(l3) if l.strip().startswith("x86_64-*-boruix*)")), None)
+            dflt = next((i + 1 for i, l in enumerate(l3)
+                         if l.strip() == "*)" and "AC_MSG_ERROR" in "\n".join(l3[i + 1:i + 3])), None)
+            print("[check] boruix 分支第 %s 行；默认（AC_MSG_ERROR）分支第 %s 行" % (ours3, dflt))
+            if ours3 is None or dflt is None:
+                print("[FAIL] 找不到分支行号 => 拒绝通过")
+                ok = False
+            elif ours3 > dflt:
+                print("[FAIL] boruix 分支排在默认分支**之后** => 永远轮不到，configure 仍会硬失败")
+                ok = False
+            else:
+                print("[OK] boruix 分支排在默认硬错误之前 => 生效")
         return 0 if ok else 1
 
     if a.revert:
@@ -243,6 +297,21 @@ def main():
         with open(h2, "w", encoding="utf-8", errors="surrogateescape", newline="") as f:
             f.write(src2.replace(ANCHOR2, INSERT2 + ANCHOR2))
         print("[OK] 已向 libgcc/config.host 插入 boruix 分支（锚点唯一）")
+
+    # ---- 插入点 3：libstdc++-v3/crossconfig.m4 ----
+    h3 = os.path.join(a.tree, "libstdc++-v3", "crossconfig.m4")
+    if not os.path.isfile(h3):
+        return die("找不到 " + h3)
+    with open(h3, encoding="utf-8", errors="surrogateescape") as f:
+        src3 = f.read()
+    if "x86_64-*-boruix*)" in src3:
+        print("[OK] crossconfig.m4 已是目标状态（幂等，未改动）")
+    else:
+        if src3.count(ANCHOR3) != 1:
+            return die("crossconfig.m4 锚点出现 %d 次（期望 1）——拒绝盲插" % src3.count(ANCHOR3))
+        with open(h3, "w", encoding="utf-8", errors="surrogateescape", newline="") as f:
+            f.write(src3.replace(ANCHOR3, INSERT3 + ANCHOR3))
+        print("[OK] 已向 crossconfig.m4 插入 boruix 分支（锚点唯一）")
 
     h = os.path.join(a.tree, "gcc", "config", "boruix.h")
     if os.path.isfile(h):
