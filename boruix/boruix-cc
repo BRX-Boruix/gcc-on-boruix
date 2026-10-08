@@ -18,6 +18,20 @@ CLANG="F:/clang/18.1.8x86_64/bin/clang.exe"
 LLD="F:/clang/18.1.8x86_64/bin/ld.lld.exe"
 SYS="$BORUIX_SYSROOT"
 common="--target=x86_64-unknown-none -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -O2 -I$SYS/include"
+# **C++ 不能带 `-ffreestanding`**（2026-10 实测）：freestanding 模式下 clang 不再把 `main` 当语言特例，
+# 会把它修饰成 `_Z4mainv`，于是链接报
+#   `undefined symbol: main … did you mean to declare main() as extern "C"?`
+# 而 `user_main.o` 要的正是未修饰的 `main`。实测同一文件：带该旗标 → `_Z4mainv`；去掉 → `main`。
+# C 侧保持原样（它已长期验证可用），只为 C++ 去掉这一条。
+cxx_common="--target=x86_64-unknown-none -fno-builtin -fno-stack-protector -fno-pic -O2 -I$SYS/include"
+
+# 本次调用是否含 C++ 源文件（决定用哪份公共旗标）。
+is_cxx=0
+for a in "$@"; do
+  case "$a" in
+    *.cc|*.cpp|*.cxx|*.C|*.CPP) is_cxx=1 ;;
+  esac
+done
 
 link=1
 for a in "$@"; do
@@ -26,6 +40,7 @@ for a in "$@"; do
   esac
 done
 if [ "$link" = 0 ]; then
+  if [ "$is_cxx" = 1 ]; then exec "$CLANG" $cxx_common "$@"; fi
   exec "$CLANG" $common "$@"
 fi
 
@@ -41,7 +56,12 @@ for a in "$@"; do
   if [ "$prev" = "-o" ]; then out="$a"; prev=""; continue; fi
   case "$a" in
     -o) prev="-o" ;;
+    # **C++ 源文件也要认**（2026-10 实测的根因）：此前只认 *.c，于是 libcody 的 configure
+    # 里那条最小 C++ 程序（`int main(){;return 0;}`）**根本没被编译**，链接直接报
+    # `ld.lld: error: undefined symbol: main`（引 user_main.o），configure 判「C++ compiler
+    # cannot create executables」。语言由扩展名交给 clang 判定，无需额外 -x。
     *.c) o="$tmp/$(basename "$a").o"; "$CLANG" $common $cflags -c "$a" -o "$o"; objs="$objs $o" ;;
+    *.cc|*.cpp|*.cxx|*.C|*.CPP) o="$tmp/$(basename "$a").o"; "$CLANG" $cxx_common $cflags -c "$a" -o "$o"; objs="$objs $o" ;;
     *.o|*.a) objs="$objs $a" ;;
     # 外部库与库搜索路径必须透传（第 60 轮实测：MPFR 的 configure 要"链接一次 gmp.h"，
     # 丢了 -l/-L 就会报 "there is an incompatibility between gmp.h and the compiler"——
@@ -49,6 +69,10 @@ for a in "$@"; do
     # 编译期影响路径/语义的旗标必须保留：链接分支里若有 .c 要现编，
     # 丢了 -I 就会 "fatal error: gmp.h file not found"（第 60 轮 MPFR 实测）。
     -I*|-D*|-U*|-isystem*|-include*|-std=*) cflags="$cflags $a" ;;
+    # GCC 的 C++ 部分固定带 `-fno-exceptions -fno-rtti`（见其编译命令）。**必须透传给编译**：
+    # 丢了它们，clang 会按「开异常/开 RTTI」编译，于是拉进 `__gxx_personality_v0`、
+    # `__cxa_*` 等 C++ 运行库符号，链接才失败——那时报的是「缺 libstdc++」，而真因是旗标被丢。
+    -fno-exceptions|-fno-rtti|-fno-threadsafe-statics) cflags="$cflags $a" ;;
     -l*|-L*) libs="$libs $a" ;;
     # -Wl,a,b -> 直接给 ld.lld 的 a b。
     -Wl,*) wl="$wl $(echo "$a" | sed "s/^-Wl,//; s/,/ /g")" ;;
