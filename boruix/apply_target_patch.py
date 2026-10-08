@@ -37,6 +37,29 @@ INSERT = ('x86_64-*-boruix*)\n'
           '\tuse_gcc_stdint=none\n'
           '\t;;\n')
 
+# ---- 插入点 2：libgcc/config.host ----
+#
+# 让 libgcc 能为 boruix 构建。模板是 `x86_64-*-elf* | x86_64-*-rtems*)`（同族 ABI/链接器）。
+#
+# **诚实说明（S39）**：本条与 elf 那条目前**只有注释上的差别**——`tmake_file` 相同。
+# 之所以单列而不并入 elf 的模式行：① 给 boruix 留一个**明确的落点**，后续差异（如
+# `crtbegin/crtend`）有地方写；② 不把 boruix 绑在 elf 那行的未来改动上。
+#
+# **尚未决定的差异点（不预先写进去）**：`crtbegin.o`/`crtend.o`。
+#  - `libgcc/config.host:71` 的 `extra_parts=` 默认**为空**，`i386/t-crtstuff` 只设
+#    `CRTSTUFF_T_CFLAGS` ⇒ **`x86_64-*-elf*` 不装 crtbegin/crtend**（裸机不需要）。
+#  - 它们对 C++ 的作用是：`.init_array`/`.fini_array` 边界、`__dso_handle`、EH frame 注册。
+#  - **但本系统的 `.init_array` 边界由 `csrc/linker.ld` 提供、遍历由 `csrc/boruix_crt.h` 完成**
+#    （已在系统内实测跑通）；而 `.eh_frame` 目前被 `linker.ld` **丢弃**（见 3p.md 的独立发现）。
+#  - ⇒ 现阶段加它们**可能冗余甚至与自有符号冲突**。故**先不加**，等 libgcc 真能构建、
+#    并出现明确的缺失证据（如 `__dso_handle` 未定义）再按证据加。
+ANCHOR2 = 'x86_64-*-elf* | x86_64-*-rtems*)\n'
+INSERT2 = ('x86_64-*-boruix*)\n'
+          '\t# Boruix：与 elf 同族（x86-64 ELF / SysV ABI）的小型托管 OS。\n'
+          '\t# 见 gcc-on-boruix/boruix/PORTING-TARGET.md；crtbegin/crtend 的取舍见该文件。\n'
+          '\ttmake_file="$tmake_file i386/t-crtstuff t-crtstuff-pic t-libgcc-pic"\n'
+          '\t;;\n')
+
 BORUIX_H = '''/* Boruix 的 target 事实（**只写已验证的**，S06/S13）。
 
    本文件由 gcc-on-boruix/boruix/apply_target_patch.py 施加，**不是上游文件**；
@@ -64,15 +87,19 @@ def _fix_stdout():
         pass
 
 
-def _case_target_blocks(lines):
-    """找出所有 `case ${target} in ... esac` 块（config.gcc 里另有 case ${host} 等，不算）。
+def _case_target_blocks(lines, var="${target}"):
+    """找出所有 `case <var> in ... esac` 块。
+
+    **`var` 必须按文件给对**（2026-10 实测教训）：`gcc/config.gcc` 用的是 `case ${target} in`，
+    而 **`libgcc/config.host` 用的是 `case ${host} in`**（那里的 `host` 指 libgcc 的宿主即目标）。
+    首版写死 `${target}`，于是对 config.host 找不到块、误报 FAIL。
 
     返回 [(start0, end0, [(label0, [patterns])])]，行号为 **0-based**。
     实测（2026-10）：config.gcc 的块边界是 291-334 / 342-599 / 633-686 / 689-693 / 724-1178 /
     1181-1189 / **1191-3631** / …；`tm_file` 是在 **1191-3631** 里按目标逐条设的。"""
     blocks = []
     for i, s in enumerate(lines):
-        if s.strip() != "case ${target} in":
+        if s.strip() != ("case " + var + " in"):
             continue
         j = i + 1
         while j < len(lines) and lines[j].rstrip() != "esac":
@@ -88,13 +115,13 @@ def _case_target_blocks(lines):
     return blocks
 
 
-def _first_matching_case_before(lines, ours_1based, target):
+def _first_matching_case_before(lines, ours_1based, target, var="${target}"):
     """在同**块**内、我们这条之前，是否有 case 也匹配 `target`（shell 是**先匹配者胜**）。
 
     跨块比行号**毫无意义**（两块都执行、各设各的变量）——本脚本首版就是这么误报的。
     返回 (行号, 模式) 或 None；块找不到则返回 ("?", "?")。"""
     import fnmatch
-    blk = next((b for b in _case_target_blocks(lines) if b[0] + 1 <= ours_1based <= b[1] + 1), None)
+    blk = next((b for b in _case_target_blocks(lines, var) if b[0] + 1 <= ours_1based <= b[1] + 1), None)
     if blk is None:
         return ("?", "?")
     for (k, pats) in blk[2]:
@@ -155,6 +182,28 @@ def main():
                 ok = False
             else:
                 print("[OK] 同块内没有更早的模式匹配 x86_64-pc-boruix => 本分支抢到匹配（补丁有效）")
+        # ---- 插入点 2：libgcc/config.host ----
+        h2 = os.path.join(a.tree, "libgcc", "config.host")
+        if not os.path.isfile(h2):
+            print("[FAIL] 找不到 " + h2)
+            return 1
+        with open(h2, encoding="utf-8", errors="surrogateescape") as f:
+            src2 = f.read()
+        has2 = "x86_64-*-boruix*)" in src2
+        print("[check] libgcc/config.host 已含 boruix 分支 = %s" % has2)
+        ok = ok and has2
+        if has2:
+            l2 = src2.splitlines()
+            ours2 = next((i + 1 for i, l in enumerate(l2) if l.startswith("x86_64-*-boruix*)")), None)
+            early2 = _first_matching_case_before(l2, ours2, "x86_64-pc-boruix", "${host}")
+            if early2 == ("?", "?"):
+                print("[FAIL] 找不到包含该分支的 case 块 => 拒绝通过")
+                ok = False
+            elif early2 is not None:
+                print("[FAIL] 同块内第 %s 行的 `%s` 更早匹配 => 本分支无效" % (early2[0], early2[1]))
+                ok = False
+            else:
+                print("[OK] libgcc：同块内无更早匹配 => 本分支有效")
         return 0 if ok else 1
 
     if a.revert:
@@ -179,6 +228,21 @@ def main():
         with open(cfg, "w", encoding="utf-8", errors="surrogateescape", newline="") as f:
             f.write(src.replace(ANCHOR, ANCHOR + INSERT))
         print("[OK] 已向 config.gcc 插入 boruix 分支（锚点唯一，替换 1 处）")
+
+    # ---- 插入点 2：libgcc/config.host ----
+    h2 = os.path.join(a.tree, "libgcc", "config.host")
+    if not os.path.isfile(h2):
+        return die("找不到 " + h2)
+    with open(h2, encoding="utf-8", errors="surrogateescape") as f:
+        src2 = f.read()
+    if "x86_64-*-boruix*)" in src2:
+        print("[OK] libgcc/config.host 已是目标状态（幂等，未改动）")
+    else:
+        if src2.count(ANCHOR2) != 1:
+            return die("libgcc 锚点出现 %d 次（期望 1）——拒绝盲插" % src2.count(ANCHOR2))
+        with open(h2, "w", encoding="utf-8", errors="surrogateescape", newline="") as f:
+            f.write(src2.replace(ANCHOR2, INSERT2 + ANCHOR2))
+        print("[OK] 已向 libgcc/config.host 插入 boruix 分支（锚点唯一）")
 
     h = os.path.join(a.tree, "gcc", "config", "boruix.h")
     if os.path.isfile(h):
