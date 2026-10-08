@@ -106,6 +106,18 @@ BORUIX_H = '''/* Boruix 的 target 事实与**链接规格**（只写已验证�
    做法：**旗标放 ASM_SPEC、程序名放 --with-as**（而不是写 .sh/.bat 包装——
    Windows 下 GCC 直接 exec 包装脚本会失败，与 --with-ld 同一考虑）。
    故 configure 需 `--with-as=F:/clang/18.1.8x86_64/bin/clang.exe`。 */
+/* cc1 的固定旗标（第 26 轮实测驱动）。
+   来路：汇编器前置修好后，`xgcc -c` 报
+     `error: changed section flags for .eh_frame, expected: 0x2`
+   （clang 的集成汇编器不接受 GCC 发的 `.section .eh_frame,"aw",@progbits`）。
+   **与本系统的现状一致**：`csrc/linker.ld` 本来就把 `*(.eh_frame*)` 丢进 /DISCARD/，
+   且 Boruix **没有异常展开运行时**（`.eh_frame` 无消费者）。故这里让 cc1 干脆不生成它——
+   **不是绕过，是让编译产物与链接脚本的既有事实一致**（S15：一处事实，两处不打架）。
+   **诚实边界**：将来若要支持 C++ 异常，必须同时改三处（本旗标、linker.ld 的 DISCARD、
+   以及提供 __register_frame_info 一侧），**不能只去掉这一行**。 */
+#undef CC1_SPEC
+#define CC1_SPEC "-fno-asynchronous-unwind-tables"
+
 #undef ASM_SPEC
 #define ASM_SPEC "--target=x86_64-unknown-none -c"
 
