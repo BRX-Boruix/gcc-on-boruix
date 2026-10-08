@@ -125,7 +125,12 @@ BORUIX_H = '''/* Boruix 的 target 事实与**链接规格**（只写已验证�
    段旗标兼容的汇编器，或让 clang 接受这些旗标——**不能只删这一行**。 */
 
 #undef ASM_SPEC
-#define ASM_SPEC "--target=x86_64-unknown-none -c"
+/* **空**：汇编器已从 clang 换成 **GNU as**（binutils 2.43.1, x86_64-elf，见第 40 轮）。
+   clang 需要 `--target=... -c`；而 **GNU as 支持长选项缩写**，会把 `--target=x86_64-unknown-none`
+   误匹配成 `--target-help` 并因多出参数而报错：
+     as: option `--target-help' doesn't allow an argument
+   GNU as 本就是 x86_64-elf 目标、且默认「只汇编」，故两者都不需要。 */
+#define ASM_SPEC ""
 
 #undef STARTFILE_SPEC
 #define STARTFILE_SPEC "%{!nostdlib:%{!r:%R/lib/user_main.o%s}}"
