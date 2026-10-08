@@ -116,7 +116,13 @@ BORUIX_H = '''/* Boruix 的 target 事实与**链接规格**（只写已验证�
    **诚实边界**：将来若要支持 C++ 异常，必须同时改三处（本旗标、linker.ld 的 DISCARD、
    以及提供 __register_frame_info 一侧），**不能只去掉这一行**。 */
 #undef CC1_SPEC
-#define CC1_SPEC "-fno-asynchronous-unwind-tables"
+#define CC1_SPEC "-fno-asynchronous-unwind-tables -g0"
+/* `-g0` 的来路（第 28 轮实测）：libgcc 的 config.log 里除 `.eh_frame` 外还有
+     error: changed section flags for .debug_str, expected: 0x30
+     error: changed section entsize for .debug_str, expected: 1
+   —— `-g` 产生的调试段同样与 clang 集成汇编器的期望冲突。**诚实边界**：`-g0` 意味着
+   本 target 目前**产不出调试信息**（bootstrap 期的取舍）；将来要调试支持，须换用与 GCC
+   段旗标兼容的汇编器，或让 clang 接受这些旗标——**不能只删这一行**。 */
 
 #undef ASM_SPEC
 #define ASM_SPEC "--target=x86_64-unknown-none -c"
