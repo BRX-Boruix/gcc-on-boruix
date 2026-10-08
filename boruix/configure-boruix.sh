@@ -77,11 +77,32 @@ export ac_cv_c_bigendian=no
 #   ② `--disable-fixincludes` 之后的选项（含三个 --with-*）**从未传给 configure**。
 # 症状会很隐蔽：configure 能过，但用的是**错误的编译器**与**树内 GMP**。
 # 故现在改成 `env` 显式传参，且**所有说明一律放在命令之前**。
+# **宿主编译器优先用真正的交叉 GCC**（2026-10 实测的更正，重要）：
+# 此前一律用 clang 的 shim，但 **clang 不是 GCC**——编 GCC 自己的源码时会撞上一堆 GCC 专有
+# builtin 与头文件假设。实测：libstdc++ 的 `tr1/special_function_util.h` 用
+# `__builtin_isnanf`/`__builtin_isnanl`，clang 报 `use of undeclared identifier`；
+# 另有一批 C/C++ 头混编摩擦（`unknown type name 'class'` 之类）。
+# 而我们现在**已经有** target=boruix 的交叉 GCC（`gcc-install/bin/x86_64-boruix-gcc|g++`，
+# 含 cc1/cc1plus）——它才是 Canadian cross 里 host 编译器的**正确**选择：真 GCC、真 builtin、
+# 且直接产出 boruix ELF。shim 那条路保留作回落（"还没有交叉 GCC"时的可用形态）。
+CROSS_BIN=${BORUIX_CROSS_BIN:-/f/boruix-project/.tmp-gcc/gcc-install/bin}
+if [ -x "$CROSS_BIN/x86_64-boruix-gcc.exe" ]; then
+  HOST_CC="$CROSS_BIN/x86_64-boruix-gcc.exe"
+  HOST_CXX="$CROSS_BIN/x86_64-boruix-g++.exe"
+elif [ -x "$CROSS_BIN/x86_64-boruix-gcc" ]; then
+  HOST_CC="$CROSS_BIN/x86_64-boruix-gcc"
+  HOST_CXX="$CROSS_BIN/x86_64-boruix-g++"
+else
+  echo "[configure-boruix] 未找到交叉 GCC（$CROSS_BIN）——回落到 clang shim（能力有限）" >&2
+  HOST_CC="sh $HERE_WIN/boruix-cc"
+  HOST_CXX="sh $HERE_WIN/boruix-cc"
+fi
+echo "[configure-boruix] host CC = $HOST_CC"
 env CC_FOR_BUILD=/usr/bin/gcc \
     AR="$BIN/llvm-ar.exe" RANLIB="$BIN/llvm-ranlib.exe" NM="$BIN/llvm-nm.exe" \
     OBJDUMP="$BIN/llvm-objdump.exe" STRIP="$BIN/llvm-strip.exe" \
-    CC="sh $HERE_WIN/boruix-cc" \
-    CXX="sh $HERE_WIN/boruix-cc" \
+    CC="$HOST_CC" \
+    CXX="$HOST_CXX" \
     "$SRC_DIR/configure" \
       --build=x86_64-pc-msys \
       --host=x86_64-boruix \

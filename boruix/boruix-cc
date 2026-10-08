@@ -14,6 +14,26 @@ set -e
 if [ -n "$BORUIX_CC_DEBUG" ]; then
   echo "boruix-cc argv: $*" >&2
 fi
+
+# **归一化 argv：把连写的 `-MF<file>` 拆成 `-MF <file>`**（2026-10 实测）。
+# clang 的 `-MF` 只接受**分开**写法（连写直接报 `unknown argument: '-MFsub/conftest.TPo'`），
+# 而 automake 的 depcomp 用的是连写——GCC 的 `gcc/configure` 依赖风格探测正是这么调的，
+# 于是十几种 depmode **全部**失败，报 `configure: error: no usable dependency style found`，
+# `configure-gcc` 整段崩（也就没有 cc1）。**这条与"文件里能不能找到 main"无关**，
+# 纯粹是一个 argv 形状问题。
+# POSIX sh 没有数组：用"shift 一个、按需 append 一个或两个"的轮转重建，**引号不丢**。
+_cc_n=$#
+_cc_i=0
+while [ "$_cc_i" -lt "$_cc_n" ]; do
+  _cc_a=$1
+  shift
+  case "$_cc_a" in
+    -MF?*) set -- "$@" -MF "${_cc_a#-MF}" ;;
+    *)     set -- "$@" "$_cc_a" ;;
+  esac
+  _cc_i=$((_cc_i + 1))
+done
+
 CLANG="F:/clang/18.1.8x86_64/bin/clang.exe"
 LLD="F:/clang/18.1.8x86_64/bin/ld.lld.exe"
 SYS="$BORUIX_SYSROOT"
