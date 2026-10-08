@@ -23,7 +23,20 @@ common="--target=x86_64-unknown-none -ffreestanding -fno-builtin -fno-stack-prot
 #   `undefined symbol: main … did you mean to declare main() as extern "C"?`
 # 而 `user_main.o` 要的正是未修饰的 `main`。实测同一文件：带该旗标 → `_Z4mainv`；去掉 → `main`。
 # C 侧保持原样（它已长期验证可用），只为 C++ 去掉这一条。
-cxx_common="--target=x86_64-unknown-none -fno-builtin -fno-stack-protector -fno-pic -O2 -I$SYS/include"
+#
+# **C++ 还必须带上 libstdc++ 的头**（2026-10 实测的根因）：host=boruix 的 GCC 要编 libcody /
+# libcpp，而 libcpp/system.h 与 libcody/cody.hh 都 `#include <memory>`。缺这条时 configure 报
+# `'memory' file not found`，连锁到 `no usable dependency style found`（libcpp 的 configure 失败）。
+# 头在 sysroot 的 `include/c++/14.2.0` 与其**目标子目录**（c++config.h 在后者）。
+#
+# **顺序有讲究**：libstdc++ 的 `cstdlib`/`cstdio` 等用 `#include_next <stdlib.h>`——
+# 它从**当前所在目录之后**继续搜。故 `$SYS/include` 必须排在 C++ 目录**之后**，且必须用
+# `-isystem`（`-I` 目录**恒在** `-isystem` 之前，会把 include_next 顶回起点 ⇒ 报
+# `fatal error: 'stdlib.h' file not found`，2026-10 实测）。
+cxx_common="--target=x86_64-unknown-none -fno-builtin -fno-stack-protector -fno-pic -O2 \
+  -isystem $SYS/include/c++/14.2.0 \
+  -isystem $SYS/include/c++/14.2.0/x86_64-boruix \
+  -isystem $SYS/include"
 
 # 本次调用是否含 C++ 源文件（决定用哪份公共旗标）。
 is_cxx=0
@@ -44,6 +57,22 @@ if [ "$link" = 0 ]; then
   exec "$CLANG" $common "$@"
 fi
 
+# **没有任何输入文件 ⇒ 这不是编译/链接，而是"问编译器问题"**（`--version`/`-v`/`-V`/
+# `-qversion`/`--help`/`-dumpversion`/`-dumpmachine`…）。**必须原样交给 clang**。
+# 来路（2026-10，gcc/config.log:4387 实测）：此前一律走链接分支，于是 `cc --version` 变成
+# "用 user_main.o 链一个空程序"，报 `ld.lld: error: undefined symbol: main`——而 GCC 的
+# configure 正是靠这条命令判断**编译器是否可用**，它一失败，configure-gcc 整段就崩，
+# 表现为 `configure: error: unknown endianness` 这类**看起来毫不相干**的下游错误。
+has_input=0
+for a in "$@"; do
+  case "$a" in
+    *.c|*.cc|*.cpp|*.cxx|*.C|*.CPP|*.o|*.a|*.s|*.S) has_input=1 ;;
+  esac
+done
+if [ "$has_input" = 0 ]; then
+  exec "$CLANG" "$@"
+fi
+
 # 链接：.c 先编成 .o，再按 sysroot 的配方用 ld.lld 链接。
 tmp=$(mktemp -d)
 objs=""
@@ -52,10 +81,30 @@ libs=""
 wl=""
 out="a.out"
 prev=""
+# 需要**下一个 argv 作为值**的选项（分开写法，如 `-MF depfile`、`-I dir`）。
+# **来路（2026-10 实测）**：automake 的 `_AM_DEPENDENCIES` 用 `$CC -MD -MF depfile -c …`
+# 探测依赖风格；shim 此前把 `-MD/-MF` 当未知参数**丢掉**，于是所有风格都"不可用"，
+# libcpp 的 configure 直接报 `error: no usable dependency style found`。
+# 同理 `-I`/`-D` 的分开写法丢了会让"文件找不到"（而 joined 写法此前是认的）。
+need_next=""
 for a in "$@"; do
+  if [ -n "$need_next" ]; then
+    case "$need_next" in
+      libs) libs="$libs $a" ;;
+      *)    cflags="$cflags $a" ;;
+    esac
+    need_next=""
+    continue
+  fi
   if [ "$prev" = "-o" ]; then out="$a"; prev=""; continue; fi
   case "$a" in
     -o) prev="-o" ;;
+    # 分开写法的"带值选项"：**必须在下面的通配之前**（case 先匹配者胜）。
+    -I|-D|-U|-isystem|-include|-std|-x|-idirafter|-iprefix|-iwithprefix|-imacros) cflags="$cflags $a"; need_next=cflags ;;
+    -MF|-MT|-MQ) cflags="$cflags $a"; need_next=cflags ;;
+    -L|-l) libs="$libs $a"; need_next=libs ;;
+    # 依赖生成（joined 与无值形式）。
+    -MD|-MMD|-MP|-MG|-MF*|-MT*|-MQ*) cflags="$cflags $a" ;;
     # **C++ 源文件也要认**（2026-10 实测的根因）：此前只认 *.c，于是 libcody 的 configure
     # 里那条最小 C++ 程序（`int main(){;return 0;}`）**根本没被编译**，链接直接报
     # `ld.lld: error: undefined symbol: main`（引 user_main.o），configure 判「C++ compiler
@@ -82,5 +131,18 @@ done
 if [ -n "$BORUIX_CC_DEBUG" ]; then
   echo "boruix-cc link: objs=[$objs] libs=[$libs] wl=[$wl]" >&2
 fi
-"$LLD" -o "$out" -e _start -nostdlib --no-dynamic-linker "$SYS/lib/user_main.o" $objs "$SYS/lib/libc.a" $libs $wl -z noexecstack -z norelro -T "$SYS/lib/linker.ld"
+# **C++ 链接要带上 libstdc++ / libsupc++**（与上面的 <memory> 是同一件事的另一半）：
+# 头找到了、库没链，就会变成"undefined symbol: std::__cxx11::..."。
+# 顺序按符号解析方向：对象 → libstdc++ → libsupc++ → libc → libgcc。
+cxxlibs=""
+if [ "$is_cxx" = 1 ]; then
+  for L in libstdc++.a libsupc++.a; do
+    [ -f "$SYS/lib/$L" ] && cxxlibs="$cxxlibs $SYS/lib/$L"
+  done
+fi
+gcc_a=""
+[ -f "$SYS/lib/libgcc.a" ] && gcc_a="$SYS/lib/libgcc.a"
+"$LLD" -o "$out" -e _start -nostdlib --no-dynamic-linker "$SYS/lib/user_main.o" $objs \
+  $cxxlibs "$SYS/lib/libc.a" $gcc_a $libs $wl \
+  -L"$SYS/lib" -z noexecstack -z norelro -T "$SYS/lib/linker.ld"
 rm -rf "$tmp"

@@ -48,28 +48,49 @@ PREFIX_WIN=${BORUIX_GCC_PREFIX_WIN:-F:/boruix-project/.tmp-gcc/host-prefix}
 mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
 
-CC_FOR_BUILD=/usr/bin/gcc \
-AR="$BIN/llvm-ar.exe" RANLIB="$BIN/llvm-ranlib.exe" NM="$BIN/llvm-nm.exe" \
-OBJDUMP="$BIN/llvm-objdump.exe" STRIP="$BIN/llvm-strip.exe" \
-CC="sh $HERE_WIN/boruix-cc" \
+# **交叉构建必须给 autoconf 的"要跑程序"的探测喂缓存变量**（2026-10 实测）：
+# 子 configure 里 `checking whether byte ordering is bigendian…` 靠**运行**编译出的程序判断，
+# 而 boruix 的 ELF 在宿主上跑不了 ⇒ `unknown endianness` → configure 硬失败。
+# x86-64 与构建机（msys/x86-64）都是小端，故 no 对两侧都成立。
+# （导出后所有子 configure 都继承——这正是 autoconf 缓存变量的用法。）
+export ac_cv_c_bigendian=no
+
 # **CXX 必须一起指到 shim**（2026-10 实测的根因）：只设 CC 时，GCC 的 C++ 部分（`cc1` 就是 C++）
 # 会回落到**构建系统的 g++**——而 `g++` 用的是 **PE 链接器**，却要去链**宿主期（boruix/ELF）**的
 # `libiberty.a`/`libmpc.a`/`libz.a` ⇒ 13 处链接失败，报 `access beyond end of merged section`
 # （PE 链接器读 ELF 对象）。设了 CXX 后 C++ 与 C 走同一条 shim 路径。
-CXX="sh $HERE_WIN/boruix-cc" \
-"$SRC_DIR/configure" \
-  --build=x86_64-pc-msys \
-  --host=x86_64-boruix \
-  --target=x86_64-elf \
-  --enable-languages=c \
-  --disable-nls --disable-bootstrap --disable-shared --disable-multilib \
-  --without-headers --disable-libssp --disable-libquadmath --disable-threads \
-  --disable-libatomic --disable-libgomp --disable-libitm --disable-libsanitizer \
-  --without-isl \
-  # fixincludes 是**宿主构建期**的头文件修补工具（不是系统内 GCC 的组成部分），它要 `alarm(10)`
-  # 给子进程装超时，而本系统**没有 interval timer**（`alarm` 已核实判不支持，见
-  # docs/TODO/libc-posix-surface.md）。**不提供 alarm 是有意的**：编译期报 `call to undeclared
-  # function 'alarm'` 比「声明了却永远不发 SIGALRM」诚实。故用 --disable-fixincludes 排除该工具。
-  --disable-fixincludes \
-  --with-gmp="$PREFIX_WIN" --with-mpfr="$PREFIX_WIN" --with-mpc="$PREFIX_WIN"
+#
+# **fixincludes 为什么排除**：它是**宿主构建期**的头文件修补工具（不是系统内 GCC 的组成部分），
+# 要 `alarm(10)` 给子进程装超时，而本系统**没有 interval timer**（`alarm` 已核实判不支持，见
+# docs/TODO/libc-posix-surface.md）。**不提供 alarm 是有意的**：编译期报 `call to undeclared
+# function 'alarm'` 比「声明了却永远不发 SIGALRM」诚实。
+#
+# **⚠ 这里曾有一个真实的脚本缺陷（2026-10 修，值得留痕）**：原版把上面两段说明**夹在续行中间**：
+#     CC="..." \
+#     # 注释……
+#     CXX="..." \
+#     "$SRC_DIR/configure" … \
+#     # 注释……
+#     --disable-fixincludes …
+# 反斜杠续行把**注释行接了上来**，于是 `#` 把它后面的内容全注释掉 ⇒
+#   ① 前半串 `CC_FOR_BUILD=… AR=… CC=…` 成了**纯 shell 赋值（未 export）**，configure 只拿到 CXX；
+#   ② `--disable-fixincludes` 之后的选项（含三个 --with-*）**从未传给 configure**。
+# 症状会很隐蔽：configure 能过，但用的是**错误的编译器**与**树内 GMP**。
+# 故现在改成 `env` 显式传参，且**所有说明一律放在命令之前**。
+env CC_FOR_BUILD=/usr/bin/gcc \
+    AR="$BIN/llvm-ar.exe" RANLIB="$BIN/llvm-ranlib.exe" NM="$BIN/llvm-nm.exe" \
+    OBJDUMP="$BIN/llvm-objdump.exe" STRIP="$BIN/llvm-strip.exe" \
+    CC="sh $HERE_WIN/boruix-cc" \
+    CXX="sh $HERE_WIN/boruix-cc" \
+    "$SRC_DIR/configure" \
+      --build=x86_64-pc-msys \
+      --host=x86_64-boruix \
+      --target=x86_64-elf \
+      --enable-languages=c \
+      --disable-nls --disable-bootstrap --disable-shared --disable-multilib \
+      --without-headers --disable-libssp --disable-libquadmath --disable-threads \
+      --disable-libatomic --disable-libgomp --disable-libitm --disable-libsanitizer \
+      --without-isl \
+      --disable-fixincludes \
+      --with-gmp="$PREFIX_WIN" --with-mpfr="$PREFIX_WIN" --with-mpc="$PREFIX_WIN"
 echo "CONFIGURE_DONE"
