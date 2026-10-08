@@ -54,12 +54,65 @@ BORUIX_H = '''/* Boruix 的 target 事实（**只写已验证的**，S06/S13）�
 '''
 
 
+def _fix_stdout():
+    """S02：不依赖系统默认编码。Windows 控制台常是 GBK，写非 GBK 字符会**崩**
+    （本脚本首版就因 `⇒` 抛 UnicodeEncodeError 而崩）。故显式指定编码 + errors=replace。"""
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+
+def _case_target_blocks(lines):
+    """找出所有 `case ${target} in ... esac` 块（config.gcc 里另有 case ${host} 等，不算）。
+
+    返回 [(start0, end0, [(label0, [patterns])])]，行号为 **0-based**。
+    实测（2026-10）：config.gcc 的块边界是 291-334 / 342-599 / 633-686 / 689-693 / 724-1178 /
+    1181-1189 / **1191-3631** / …；`tm_file` 是在 **1191-3631** 里按目标逐条设的。"""
+    blocks = []
+    for i, s in enumerate(lines):
+        if s.strip() != "case ${target} in":
+            continue
+        j = i + 1
+        while j < len(lines) and lines[j].rstrip() != "esac":
+            j += 1
+        labels = []
+        for k in range(i + 1, j):
+            t = lines[k]
+            # 顶层 case 标签：行首无缩进且以 `)` 结尾（如 `x86_64-*-elf*)`）。
+            if t and not t[0].isspace() and t.rstrip().endswith(")"):
+                pats = [p.strip() for p in t.rstrip()[:-1].split("|")]
+                labels.append((k, pats))
+        blocks.append((i, j, labels))
+    return blocks
+
+
+def _first_matching_case_before(lines, ours_1based, target):
+    """在同**块**内、我们这条之前，是否有 case 也匹配 `target`（shell 是**先匹配者胜**）。
+
+    跨块比行号**毫无意义**（两块都执行、各设各的变量）——本脚本首版就是这么误报的。
+    返回 (行号, 模式) 或 None；块找不到则返回 ("?", "?")。"""
+    import fnmatch
+    blk = next((b for b in _case_target_blocks(lines) if b[0] + 1 <= ours_1based <= b[1] + 1), None)
+    if blk is None:
+        return ("?", "?")
+    for (k, pats) in blk[2]:
+        if k + 1 >= ours_1based:
+            break
+        for p in pats:
+            if fnmatch.fnmatchcase(target, p):
+                return (k + 1, p)
+    return None
+
+
 def die(msg):
     print("[FAIL] " + msg)
     return 1
 
 
 def main():
+    _fix_stdout()
     ap = argparse.ArgumentParser()
     ap.add_argument("--tree", required=True)
     ap.add_argument("--check", action="store_true", help="只校验是否已是目标状态")
@@ -77,8 +130,32 @@ def main():
     if a.check:
         print("[check] config.gcc 已含 boruix 分支 = %s" % has_insert)
         h = os.path.join(a.tree, "gcc", "config", "boruix.h")
-        print("[check] gcc/config/boruix.h 存在 = %s" % os.path.isfile(h))
-        return 0 if (has_insert and os.path.isfile(h)) else 1
+        h_ok = os.path.isfile(h)
+        print("[check] gcc/config/boruix.h 存在 = %s" % h_ok)
+        ok = has_insert and h_ok
+        # **顺序检查——这才是本补丁的真实语义**（2026-10 更正）：
+        # `config.gcc` 是 shell `case`，**先匹配者胜**；兜底分支 `i[34567]86-*-* | x86_64-*-*)`
+        # **也能**匹配 `x86_64-boruix`，故我们的分支**必须排在它之前**才抢得到。
+        # 此前我把验收错定成「configure 能否成功」——而它本来就成功（兜底接住了），
+        # **红态没红**才发现前提有误。故这条顺序检查才是对的验收。
+        if has_insert:
+            lines = src.splitlines()
+            ours = next((i + 1 for i, l in enumerate(lines) if l.startswith("x86_64-*-boruix*)")), None)
+            print("[check] boruix 分支在第 %s 行" % ours)
+            # **同块内**的先匹配者胜。跨块比行号无意义（config.gcc 有多个 case ${target} in 块，
+            # 各设各的变量；`tm_file` 的块是 1191-3631）。
+            early = _first_matching_case_before(lines, ours, "x86_64-pc-boruix")
+            if early == ("?", "?"):
+                print("[FAIL] 找不到包含该分支的 `case ${target} in` 块 => 无法判定匹配顺序，**拒绝通过**")
+                ok = False
+            elif early is not None:
+                print("[FAIL] 同块内第 %s 行的模式 `%s` **也匹配** x86_64-pc-boruix 且排在我们之前"
+                      % (early[0], early[1]))
+                print("       => shell case 先匹配者胜，本分支**永远轮不到**（补丁等于无效）")
+                ok = False
+            else:
+                print("[OK] 同块内没有更早的模式匹配 x86_64-pc-boruix => 本分支抢到匹配（补丁有效）")
+        return 0 if ok else 1
 
     if a.revert:
         if not has_insert:
