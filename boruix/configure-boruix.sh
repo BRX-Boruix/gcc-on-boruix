@@ -52,6 +52,11 @@ CC_FOR_BUILD=/usr/bin/gcc \
 AR="$BIN/llvm-ar.exe" RANLIB="$BIN/llvm-ranlib.exe" NM="$BIN/llvm-nm.exe" \
 OBJDUMP="$BIN/llvm-objdump.exe" STRIP="$BIN/llvm-strip.exe" \
 CC="sh $HERE_WIN/boruix-cc" \
+# **CXX 必须一起指到 shim**（2026-10 实测的根因）：只设 CC 时，GCC 的 C++ 部分（`cc1` 就是 C++）
+# 会回落到**构建系统的 g++**——而 `g++` 用的是 **PE 链接器**，却要去链**宿主期（boruix/ELF）**的
+# `libiberty.a`/`libmpc.a`/`libz.a` ⇒ 13 处链接失败，报 `access beyond end of merged section`
+# （PE 链接器读 ELF 对象）。设了 CXX 后 C++ 与 C 走同一条 shim 路径。
+CXX="sh $HERE_WIN/boruix-cc" \
 "$SRC_DIR/configure" \
   --build=x86_64-pc-msys \
   --host=x86_64-boruix \
