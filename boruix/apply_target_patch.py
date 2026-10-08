@@ -32,7 +32,7 @@ ANCHOR = ('x86_64-*-elf*)\n'
 #   两份并存会打架（S15 单点定义）。故 use_gcc_stdint=none：GCC 不提供 stdint。
 # - tmake_file 参照 x86_64-*-rdos*（同为小型 OS）。
 INSERT = ('x86_64-*-boruix*)\n'
-          '\ttm_file="${tm_file} i386/unix.h i386/att.h elfos.h i386/i386elf.h i386/x86-64.h boruix.h"\n'
+          '\ttm_file="${tm_file} i386/unix.h i386/att.h elfos.h boruix-stdint.h i386/i386elf.h i386/x86-64.h boruix.h"\n'
           '\ttmake_file="i386/t-i386elf t-svr4"\n'
           '\tuse_gcc_stdint=none\n'
           '\t;;\n')
@@ -367,6 +367,18 @@ def main():
         with open(h3, "w", encoding="utf-8", errors="surrogateescape", newline="") as f:
             f.write(src3.replace(ANCHOR3, INSERT3 + ANCHOR3))
         print("[OK] 已向 crossconfig.m4 插入 boruix 分支（锚点唯一）")
+
+    # boruix-stdint.h：与 boruix.h 同源同目录，从本脚本旁拷入（**单一数据源**，不在脚本里内联）。
+    sd = os.path.join(a.tree, "gcc", "config", "boruix-stdint.h")
+    src_sd = os.path.join(os.path.dirname(os.path.abspath(__file__)), "boruix-stdint.h")
+    if not os.path.isfile(src_sd):
+        return die("找不到同目录的 boruix-stdint.h（应与本脚本同放）")
+    if os.path.isfile(sd):
+        print("[OK] gcc/config/boruix-stdint.h 已存在（幂等，未改动）")
+    else:
+        import shutil as _sh
+        _sh.copyfile(src_sd, sd)
+        print("[OK] 已拷入 gcc/config/boruix-stdint.h")
 
     h = os.path.join(a.tree, "gcc", "config", "boruix.h")
     if os.path.isfile(h):
