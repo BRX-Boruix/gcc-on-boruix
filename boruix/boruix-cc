@@ -162,7 +162,10 @@ if [ "$is_cxx" = 1 ]; then
 fi
 gcc_a=""
 [ -f "$SYS/lib/libgcc.a" ] && gcc_a="$SYS/lib/libgcc.a"
-"$LLD" -o "$out" -e _start -nostdlib --no-dynamic-linker "$SYS/lib/user_main.o" $objs \
+# **入口桥接用 `user_main_argv.o`（POSIX argv 版），不是 `user_main.o`**——理由与
+# `gcc/config/boruix.h` 的 STARTFILE_SPEC 同一条（那里有完整论证）：本系统 argv[0] 是整条
+# 命令行，用裸版会让程序看不到任何参数（cc1 --version 因此去读 stdin 而永久阻塞）。
+"$LLD" -o "$out" -e _start -nostdlib --no-dynamic-linker "$SYS/lib/user_main_argv.o" $objs \
   $cxxlibs "$SYS/lib/libc.a" $gcc_a $libs $wl \
   -L"$SYS/lib" -z noexecstack -z norelro -T "$SYS/lib/linker.ld"
 rm -rf "$tmp"

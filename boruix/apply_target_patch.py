@@ -166,8 +166,21 @@ BORUIX_H = '''/* Boruix 的 target 事实与**链接规格**（只写已验证�
    GNU as 本就是 x86_64-elf 目标、且默认「只汇编」，故两者都不需要。 */
 #define ASM_SPEC ""
 
+/* **入口桥接必须用 `user_main_argv.o`，不是 `user_main.o`**（2026-10 实测的根因）。
+
+   本系统的入口 ABI（docs/abi/syscall-abi.md §4）里 `argc` 恒为 0/1、`argv[0]` 指向
+   **整条命令行**——"内核不拆词，拆词是用户程序的职责"。`user_main.o` 把 (argc, argv)
+   **原样**透传给 `main`；`user_main_argv.o` 才把命令行拆成标准 POSIX argv。
+
+   第三方程序（tcc、cc1、以及任何按 argv[1..] 解析选项的程序）假定标准 argv，用
+   `user_main.o` 会**看不到任何参数**。实测代价：`cc1 --version` 收到的 argv[0] 是
+   "./cc1.elf --version"、argc=1 ⇒ 没有 `--version` 这个选项 ⇒ 无输入文件 ⇒ **去读 stdin
+   ⇒ 永久阻塞**（在 Boruix 内表现为"已启动、无输出、也不退出"）。
+   tcc 早前也栽在同一处（`csrc/user_main_argv.c` 的文档记了那次实测）。
+
+   故第三方工具链的入口桥接统一用 argv 版；`user_main.o` 保留给按裸 ABI 写的 BORUIX 原生程序。 */
 #undef STARTFILE_SPEC
-#define STARTFILE_SPEC "%{!nostdlib:%{!r:%R/lib/user_main.o%s}}"
+#define STARTFILE_SPEC "%{!nostdlib:%{!r:%R/lib/user_main_argv.o%s}}"
 #undef ENDFILE_SPEC
 #define ENDFILE_SPEC ""
 #undef LIB_SPEC
