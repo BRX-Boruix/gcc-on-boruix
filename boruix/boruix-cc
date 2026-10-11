@@ -34,8 +34,30 @@ while [ "$_cc_i" -lt "$_cc_n" ]; do
   _cc_i=$((_cc_i + 1))
 done
 
-CLANG="F:/clang/18.1.8x86_64/bin/clang.exe"
-LLD="F:/clang/18.1.8x86_64/bin/ld.lld.exe"
+# 工具解析（**S01：零硬编码环境**）。此前这里写死 `F:/clang/18.1.8x86_64/bin/…`——
+# 那是本机路径，换台机器就废。改为：环境变量覆盖 → PATH 查找 → 找不到就**明确报错**
+# （而不是让后面的调用给出难懂的失败）。
+#
+# 为什么默认找不带 `.exe` 的名字：Windows 的 CreateProcess 只对**不带点**的名字补 `.exe`；
+# `ld.lld` 的 `.lld` 会被当成扩展名 ⇒ 直接找不到（见 tools/tools_build/toolchain.py）。
+# 本脚本经 `sh` 运行、由 shell 自己解析 PATH，故写不带 `.exe` 的名字是对的；
+# 若调用方所在环境需要带后缀，用下面两个环境变量显式给全名。
+if [ -z "$BORUIX_CC_CLANG" ]; then
+  BORUIX_CC_CLANG=$(command -v clang || true)
+fi
+if [ -z "$BORUIX_CC_LLD" ]; then
+  BORUIX_CC_LLD=$(command -v ld.lld || true)
+fi
+if [ -z "$BORUIX_CC_CLANG" ]; then
+  echo "boruix-cc: 找不到 clang。请把它加入 PATH，或设 BORUIX_CC_CLANG 指向可执行文件。" >&2
+  exit 1
+fi
+if [ -z "$BORUIX_CC_LLD" ]; then
+  echo "boruix-cc: 找不到 ld.lld。请把它加入 PATH，或设 BORUIX_CC_LLD 指向可执行文件。" >&2
+  exit 1
+fi
+CLANG="$BORUIX_CC_CLANG"
+LLD="$BORUIX_CC_LLD"
 SYS="$BORUIX_SYSROOT"
 common="--target=x86_64-unknown-none -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -O2 -I$SYS/include"
 # **C++ 不能带 `-ffreestanding`**（2026-10 实测）：freestanding 模式下 clang 不再把 `main` 当语言特例，
