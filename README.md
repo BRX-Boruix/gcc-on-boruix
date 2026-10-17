@@ -65,9 +65,22 @@ GCC 支持的目标平台数量是现有编译器里最多的，且经过数十�
 
 ## 仓库里有什么
 
-**GCC 源码树本身不入版本控制**：它解压在工作区的 `.tmp-gcc/gcc-14.2.0/`（取源与 SHA512 记于
+**GCC 源码树本身不入版本控制**：它解压在工作区的 `toolchain/src/gcc-14.2.0/`（取源与 SHA512 记于
 `docs/TODO/3p.md`）。本仓只放**对上游的改动与构建适配**——`UPSTREAM-PATCHES`（上游补丁清单）、
 `boruix/boruix-cc`（宿主编译器 shim）、`boruix/configure-boruix.sh`（Canadian-cross 配方）。
+
+**工具链根的位置**（2026-10 改）：默认是工作区下的 `toolchain/`，由 `boruix/` 下两个脚本按
+**自身位置**推出（`<工作区根>/gcc-on-boruix/boruix/` → `<工作区根>/toolchain`），不写死绝对路径；
+工具链在别处时用 `BORUIX_CROSS_DIR` 覆盖。目录分工：
+
+| 路径 | 内容 | 可重建？ |
+| --- | --- | --- |
+| `toolchain/x86_64-boruix/gcc/` | 交叉 GCC 安装树（`cc1`/`cc1plus`/libgcc/libstdc++） | **否**，重建要重走 configure + make |
+| `toolchain/x86_64-boruix/binutils/` `as/` | 目标端 binutils 与 GNU as | **否** |
+| `toolchain/src/gcc-14.2.0/` `src/tarballs/` | GCC 源码树与上游 tarball | 是 |
+| `toolchain/build/` | 宿主依赖、构建树、`host-prefix` | 是 |
+
+此前这套东西放在 `.tmp-gcc/`——名字说的是"临时"，装的却是唯一一份不可重建的工具链。
 
 ## 许可证
 
@@ -90,7 +103,7 @@ any later version），运行库另附上面那份例外条款。
 **权威声明仍是 GCC 自己的**：上面两份是 GCC 14.2.0 发行版里的逐字拷贝，不是本项目的改写；
 若有不一致，以 GCC 上游为准。
 
-**诚实边界**：本仓**不包含** GCC 源码树本身（它在 `.tmp-gcc/` 里，不入版本控制）。所以「本仓的
+**诚实边界**：本仓**不包含** GCC 源码树本身（它在工作区的 `toolchain/src/` 里，不入版本控制）。所以「本仓的
 授权」与「GCC 本体的授权」不是一回事——前者按上游条款授权，后者随其源码分发。
 
 ## 相关项目
@@ -160,10 +173,16 @@ open design question.
 ## What the repository holds
 
 **The GCC source tree itself is not version-controlled here**: it is unpacked into the workspace's
-`.tmp-gcc/gcc-14.2.0/` (sources and SHA512 recorded in `docs/TODO/3p.md`). This repository holds only
-the **changes to upstream and the build adaptations** — `UPSTREAM-PATCHES` (upstream patch list),
-`boruix/boruix-cc` (host compiler shim), and `boruix/configure-boruix.sh` (the Canadian-cross
-recipe).
+`toolchain/src/gcc-14.2.0/` (sources and SHA512 recorded in `docs/TODO/3p.md`). This repository holds
+only the **changes to upstream and the build adaptations** — `UPSTREAM-PATCHES` (upstream patch
+list), `boruix/boruix-cc` (host compiler shim), and `boruix/configure-boruix.sh` (the
+Canadian-cross recipe).
+
+**Where the toolchain root lives** (changed 2026-10): it defaults to `toolchain/` in the workspace,
+derived from the **scripts' own location** (`<workspace>/gcc-on-boruix/boruix/` →
+`<workspace>/toolchain`) rather than hardcoded absolute paths; set `BORUIX_CROSS_DIR` to point
+elsewhere. The `x86_64-boruix/gcc`, `x86_64-boruix/binutils` and `x86_64-boruix/as` trees are
+**not rebuildable cheaply** (a rebuild re-runs configure + make); `src/` and `build/` are.
 
 ## License
 
@@ -189,8 +208,9 @@ repository held no code), but the sources have since arrived, in patch form.
 GCC 14.2.0 distribution, not rewrites by this project; where they differ, GCC upstream wins.
 
 **Honest boundary**: this repository does **not** contain the GCC source tree itself (it lives in
-`.tmp-gcc/`, untracked). So "this repository's licensing" and "GCC's licensing" are not the same
-thing — the former is governed by the upstream terms, the latter travels with its sources.
+the workspace's `toolchain/src/`, untracked). So "this repository's licensing" and "GCC's
+licensing" are not the same thing — the former is governed by the upstream terms, the latter
+travels with its sources.
 
 ## Related projects
 

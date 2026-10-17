@@ -41,10 +41,20 @@ BIN=${BORUIX_LLVM_BIN:-/f/clang/18.1.8x86_64/bin}
 HERE=$(cd "$(dirname "$0")" && pwd)
 # Windows 风格副本：CC 的值要交给原生 clang 链路（见文件头「Windows 风格绝对路径」）。
 HERE_WIN=$(cd "$(dirname "$0")" && pwd -W 2>/dev/null || pwd)
-BUILD_DIR=${1:-/f/boruix-project/.tmp-gcc/build}
-SRC_DIR=${2:-/f/boruix-project/.tmp-gcc/gcc-14.2.0}
+
+# **工具链位置由本脚本自身位置推出，不写死绝对路径**（2026-10 改）。
+# 本脚本在 <工作区根>/gcc-on-boruix/boruix/ 下，故工具链根默认是 <工作区根>/toolchain。
+# 此前这里写死 /f/boruix-project/.tmp-gcc/...：那个目录名字说的是"临时"，装的却是唯一一份
+# 交叉 GCC（重建要重走 configure + make），一次例行清理就能把它删掉。名字和内容是矛盾的。
+# 工具链不在工作区里时，用 BORUIX_CROSS_DIR 指过去。
+WS=$(cd "$HERE/../.." && pwd)
+CROSS=${BORUIX_CROSS_DIR:-$WS/toolchain}
+CROSS_WIN=$(cd "$CROSS" 2>/dev/null && pwd -W || echo "$CROSS")
+
+BUILD_DIR=${1:-$CROSS/build/gcc}
+SRC_DIR=${2:-$CROSS/src/gcc-14.2.0}
 # 前置库安装 prefix（Windows 风格；可用 BORUIX_GCC_PREFIX_WIN 覆盖）。
-PREFIX_WIN=${BORUIX_GCC_PREFIX_WIN:-F:/boruix-project/.tmp-gcc/host-prefix}
+PREFIX_WIN=${BORUIX_GCC_PREFIX_WIN:-$CROSS_WIN/build/host-prefix}
 mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
 
@@ -82,20 +92,29 @@ export ac_cv_c_bigendian=no
 # builtin 与头文件假设。实测：libstdc++ 的 `tr1/special_function_util.h` 用
 # `__builtin_isnanf`/`__builtin_isnanl`，clang 报 `use of undeclared identifier`；
 # 另有一批 C/C++ 头混编摩擦（`unknown type name 'class'` 之类）。
-# 而我们现在**已经有** target=boruix 的交叉 GCC（`gcc-install/bin/x86_64-boruix-gcc|g++`，
+# 而我们现在**已经有** target=boruix 的交叉 GCC（`<toolchain>/x86_64-boruix/gcc/bin/x86_64-boruix-gcc|g++`，
 # 含 cc1/cc1plus）——它才是 Canadian cross 里 host 编译器的**正确**选择：真 GCC、真 builtin、
 # 且直接产出 boruix ELF。shim 那条路保留作回落（"还没有交叉 GCC"时的可用形态）。
-CROSS_BIN=${BORUIX_CROSS_BIN:-/f/boruix-project/.tmp-gcc/gcc-install/bin}
+CROSS_BIN=${BORUIX_CROSS_BIN:-$CROSS/x86_64-boruix/gcc/bin}
 if [ -x "$CROSS_BIN/x86_64-boruix-gcc.exe" ]; then
   HOST_CC="$CROSS_BIN/x86_64-boruix-gcc.exe"
   HOST_CXX="$CROSS_BIN/x86_64-boruix-g++.exe"
 elif [ -x "$CROSS_BIN/x86_64-boruix-gcc" ]; then
   HOST_CC="$CROSS_BIN/x86_64-boruix-gcc"
   HOST_CXX="$CROSS_BIN/x86_64-boruix-g++"
-else
-  echo "[configure-boruix] 未找到交叉 GCC（$CROSS_BIN）——回落到 clang shim（能力有限）" >&2
+elif [ -n "$BORUIX_ALLOW_CLANG_SHIM" ]; then
+  # 只在**显式要求**时回落：clang 不是 GCC，编 GCC 自身源码会撞 GCC 专有 builtin
+  # （libstdc++ 的 __builtin_isnanf 等），这条路是"还没有交叉 GCC"时的应急形态。
+  # 此前是无条件回落，等于把已知更差的选择静默选中。
+  echo "[configure-boruix] 未找到交叉 GCC（$CROSS_BIN）——按 BORUIX_ALLOW_CLANG_SHIM 回落 clang shim" >&2
   HOST_CC="sh $HERE_WIN/boruix-cc"
   HOST_CXX="sh $HERE_WIN/boruix-cc"
+else
+  echo "[configure-boruix] 错误：未找到交叉 GCC：$CROSS_BIN" >&2
+  echo "  期望存在：$CROSS_BIN/x86_64-boruix-gcc.exe" >&2
+  echo "  工具链不在 $CROSS 时：export BORUIX_CROSS_DIR=<工具链根>" >&2
+  echo "  确实要用 clang shim 时：export BORUIX_ALLOW_CLANG_SHIM=1" >&2
+  exit 1
 fi
 echo "[configure-boruix] host CC = $HOST_CC"
 env CC_FOR_BUILD=/usr/bin/gcc \

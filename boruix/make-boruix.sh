@@ -11,10 +11,15 @@ if [ -z "$BORUIX_SYSROOT" ]; then
   echo "需要 BORUIX_SYSROOT（install --prefix 的产物）" >&2
   exit 1
 fi
+# 工具链位置由本脚本自身位置推出（<工作区根>/gcc-on-boruix/boruix/ -> <工作区根>/toolchain），
+# 不写死绝对路径；工具链在别处时用 BORUIX_CROSS_DIR 覆盖。与 configure-boruix.sh 同源。
+HERE=$(cd "$(dirname "$0")" && pwd)
+WS=$(cd "$HERE/../.." && pwd)
+CROSS=${BORUIX_CROSS_DIR:-$WS/toolchain}
 BUILD_DIR=$1
-[ -n "$BUILD_DIR" ] || BUILD_DIR=/f/boruix-project/.tmp-gcc/build-native
+[ -n "$BUILD_DIR" ] || BUILD_DIR=$CROSS/build/gcc-native
 SRC_DIR=$2
-[ -n "$SRC_DIR" ] || SRC_DIR=/f/boruix-project/.tmp-gcc/gcc-14.2.0
+[ -n "$SRC_DIR" ] || SRC_DIR=$CROSS/src/gcc-14.2.0
 MAKE_TARGET=$3
 [ -n "$MAKE_TARGET" ] || MAKE_TARGET=all-gcc
 J=$BORUIX_JOBS
